@@ -1,0 +1,7 @@
+*.d
+*.o
+/bin/
+/obj/
+.cache
+.vscode
+
