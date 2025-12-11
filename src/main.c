@@ -35,6 +35,7 @@ int main(void) {
   bool b = false;
   for (;;) {
     bool b = !b;
+    BK4819_SelectFilterEx(b ? FILTER_UHF : FILTER_VHF);
     printf("RSSI=%u\n", BK4819_GetRSSI());
     BOARD_FlashlightToggle();
     UI_ClearScreen();
@@ -45,6 +46,6 @@ int main(void) {
     PrintMedium(0, 56, "Key: %u", KEYBOARD_Poll());
     ST7565_BlitFullScreen();
     BK4819_ToggleGpioOut(BK4819_GREEN, b);
-    SYSTICK_DelayMs(1000);
+    SYSTICK_DelayMs(500);
   }
 }
