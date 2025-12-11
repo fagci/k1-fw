@@ -25,13 +25,16 @@ int main(void) {
   // BK4819_SetAGC(true, 0);
 
   BACKLIGHT_TurnOn();
-  UI_ClearScreen();
-  PrintMedium(0, 32, "Hello world!");
-  ST7565_BlitFullScreen();
 
   for (;;) {
     printf("RSSI=%u\n", BK4819_GetRSSI());
     BOARD_FlashlightToggle();
+    UI_ClearScreen();
+    PrintBigDigitsEx(LCD_WIDTH - 1, 32, POS_R, C_FILL, "%u",
+                     BK4819_GetFrequency());
+    PrintMedium(0, 40, "RSSI: %u", BK4819_GetRSSI());
+    PrintMedium(0, 48, "NOW: %u", Now());
+    ST7565_BlitFullScreen();
     SYSTICK_DelayMs(1000);
   }
 }

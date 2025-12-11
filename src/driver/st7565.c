@@ -2,17 +2,16 @@
 #include <stdio.h> // NULL
 
 #include "gpio.h"
-#include "st7565.h"
 #include "py32f071_ll_bus.h"
 #include "py32f071_ll_gpio.h"
 #include "py32f071_ll_spi.h"
+#include "st7565.h"
 
 #define SPIx SPI1
 
 #define PIN_CS GPIO_MAKE_PIN(GPIOB, LL_GPIO_PIN_2)
 #define PIN_A0 GPIO_MAKE_PIN(GPIOA, LL_GPIO_PIN_6)
 
-uint8_t gStatusLine[LCD_WIDTH];
 uint8_t gFrameBuffer[FRAME_LINES][LCD_WIDTH];
 
 static void SPI_Init() {
@@ -94,7 +93,7 @@ void ST7565_BlitFullScreen(void) {
   CS_Assert();
   ST7565_WriteByte(0x40);
   for (unsigned line = 0; line < FRAME_LINES; line++) {
-    DrawLine(0, line + 1, gFrameBuffer[line], LCD_WIDTH);
+    DrawLine(0, line, gFrameBuffer[line], LCD_WIDTH);
   }
   CS_Release();
 }
@@ -102,14 +101,7 @@ void ST7565_BlitFullScreen(void) {
 void ST7565_BlitLine(unsigned line) {
   CS_Assert();
   ST7565_WriteByte(0x40); // start line ?
-  DrawLine(0, line + 1, gFrameBuffer[line], LCD_WIDTH);
-  CS_Release();
-}
-
-void ST7565_BlitStatusLine(void) { // the top small text line on the display
-  CS_Assert();
-  ST7565_WriteByte(0x40); // start line ?
-  DrawLine(0, 0, gStatusLine, LCD_WIDTH);
+  DrawLine(0, line, gFrameBuffer[line], LCD_WIDTH);
   CS_Release();
 }
 
