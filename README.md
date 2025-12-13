@@ -1,4 +1,4 @@
-# K1 FW
+# K1 & K5/v3 FW
 
 ## Build
 
