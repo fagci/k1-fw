@@ -13,6 +13,10 @@
 
 static uint32_t fInitial = 17230000;
 
+#include "driver/usb_msc.h"
+#include "py32f071_ll_bus.h"
+#include "config/usb_config.h"
+
 int main(void) {
   SYSTICK_Init();
   BOARD_Init();
@@ -32,6 +36,16 @@ int main(void) {
 
   BACKLIGHT_TurnOn();
 
+  // Инициализация USB MSC
+  LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_SYSCFG);
+  LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA); // PA12:11
+  LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USBD);
+
+  NVIC_SetPriority(USBD_IRQn, 3);
+  NVIC_EnableIRQ(USBD_IRQn);
+
+  msc_init();
+
   bool b = false;
   for (;;) {
     bool b = !b;
@@ -45,7 +59,6 @@ int main(void) {
     PrintMedium(0, 48, "NOW: %u", Now());
     PrintMedium(0, 56, "Key: %u", KEYBOARD_Poll());
     ST7565_BlitFullScreen();
-    BK4819_ToggleGpioOut(BK4819_GREEN, b);
     SYSTICK_DelayMs(500);
   }
 }

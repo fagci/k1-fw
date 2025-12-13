@@ -47,6 +47,9 @@ OBJS := $(OBJ_DIR)/start.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_gpio.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_rcc.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_usart.o \
+		$(OBJ_DIR)/external/CherryUSB/core/usbd_core.o \
+		$(OBJ_DIR)/external/CherryUSB/port/usb_dc_py32.o \
+		$(OBJ_DIR)/external/CherryUSB/class/msc/usbd_msc.o \
         $(SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
 # =============================================================================
@@ -99,6 +102,9 @@ DEFINES  := -DPRINTF_INCLUDE_CONFIG_H \
 INC_DIRS := -I./src/config \
 			-I./src/external/CMSIS/Device/PY32F071/Include \
 			-I./src/external/CMSIS/Include \
+			-I./src/external/CherryUSB/core \
+			-I./src/external/CherryUSB/common \
+			-I./src/external/CherryUSB/class/msc \
 			-I./src/external/PY32F071_HAL_Driver/Inc
 
 # =============================================================================
