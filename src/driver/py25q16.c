@@ -20,8 +20,6 @@
 #define SECTOR_SIZE 0x1000
 #define PAGE_SIZE 0x100
 
-static uint32_t SectorCacheAddr = 0x1000000;
-static uint8_t SectorCache[SECTOR_SIZE];
 static uint8_t BlackHole[1];
 static volatile bool TC_Flag;
 
@@ -190,108 +188,59 @@ static void SectorErase(uint32_t Addr);
 static void SectorProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size);
 static void PageProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size);
 
-/* void PY25Q16_Init() {
-  CS_Release();
-  SPI_Init();
-} */
-
 void PY25Q16_Init(void) {
     CS_Release();
     SPI_Init();
-    SectorCacheAddr = 0x1000000;
-    memset(SectorCache, 0, SECTOR_SIZE);
-
-    // Add reset (optional but recommended to clear any state)
+    
+    // Reset flash
     CS_Assert();
-    SPI_WriteByte(0x66);  // Reset Enable
+    SPI_WriteByte(0x66);
     CS_Release();
     CS_Assert();
-    SPI_WriteByte(0x99);  // Reset
+    SPI_WriteByte(0x99);
     CS_Release();
-    PY25Q16_WaitBusy();  // Wait after reset
+    PY25Q16_WaitBusy();
 }
 
 void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size) {
-#ifdef DEBUG
-  printf("spi flash read: %06x %ld\n", Address, Size);
-#endif
-  CS_Assert();
-
-  SPI_WriteByte(0x03); // Fast read
-  WriteAddr(Address);
-
-  if (Size >= 16) {
-    SPI_ReadBuf((uint8_t *)pBuffer, Size);
-  } else {
-    for (uint32_t i = 0; i < Size; i++) {
-      ((uint8_t *)(pBuffer))[i] = SPI_WriteByte(0xff);
+    CS_Assert();
+    SPI_WriteByte(0x03);
+    WriteAddr(Address);
+    if (Size >= 16) {
+        SPI_ReadBuf((uint8_t *)pBuffer, Size);
+    } else {
+        for (uint32_t i = 0; i < Size; i++) {
+            ((uint8_t *)pBuffer)[i] = SPI_WriteByte(0xff);
+        }
     }
-  }
-
-  CS_Release();
+    CS_Release();
 }
 
-void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size,
-                         bool Append) {
-#ifdef DEBUG
-  printf("spi flash write: %06x %ld %d\n", Address, Size, Append);
-#endif
-  uint32_t SecIndex = Address / SECTOR_SIZE;
-  uint32_t SecAddr = SecIndex * SECTOR_SIZE;
-  uint32_t SecOffset = Address % SECTOR_SIZE;
-  uint32_t SecSize = SECTOR_SIZE - SecOffset;
-
-  while (Size) {
-    if (Size < SecSize) {
-      SecSize = Size;
-    }
-
-    if (SecAddr != SectorCacheAddr) {
-      PY25Q16_ReadBuffer(SecAddr, SectorCache, SECTOR_SIZE);
-      SectorCacheAddr = SecAddr;
-    }
-
-    if (0 != memcmp(pBuffer, (char *)SectorCache + SecOffset, SecSize)) {
-      bool Erase = false;
-      for (uint32_t i = 0; i < SecSize; i++) {
-        if (0xff != SectorCache[SecOffset + i]) {
-          Erase = true;
-          break;
+// Новая упрощённая запись без кеша
+void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size) {
+    // FAT будет подавать данные, уже выровненные по страницам
+    uint32_t Addr = Address;
+    const uint8_t *Buf = (const uint8_t *)pBuffer;
+    uint32_t Remaining = Size;
+    
+    while (Remaining > 0) {
+        uint32_t PageOffset = Addr % PAGE_SIZE;
+        uint32_t ChunkSize = PAGE_SIZE - PageOffset;
+        if (ChunkSize > Remaining) {
+            ChunkSize = Remaining;
         }
-      }
-
-      memcpy(SectorCache + SecOffset, pBuffer, SecSize);
-
-      if (Erase) {
-        SectorErase(SecAddr);
-        if (Append) {
-          SectorProgram(SecAddr, SectorCache, SecOffset + SecSize);
-          memset(SectorCache + SecOffset + SecSize, 0xff,
-                 SECTOR_SIZE - SecOffset - SecSize);
-        } else {
-          SectorProgram(SecAddr, SectorCache, SECTOR_SIZE);
-        }
-      } else {
-        SectorProgram(Address, pBuffer, SecSize);
-      }
+        
+        PageProgram(Addr, Buf, ChunkSize);
+        
+        Addr += ChunkSize;
+        Buf += ChunkSize;
+        Remaining -= ChunkSize;
     }
-
-    Address += SecSize;
-    pBuffer += SecSize;
-    Size -= SecSize;
-
-    SecAddr += SECTOR_SIZE;
-    SecOffset = 0;
-    SecSize = SECTOR_SIZE;
-  } // while
 }
 
 void PY25Q16_SectorErase(uint32_t Address) {
-  Address -= (Address % SECTOR_SIZE);
-  SectorErase(Address);
-  if (SectorCacheAddr == Address) {
-    memset(SectorCache, 0xff, SECTOR_SIZE);
-  }
+    Address -= (Address % SECTOR_SIZE);
+    SectorErase(Address);
 }
 
 static inline void WriteAddr(uint32_t Addr) {

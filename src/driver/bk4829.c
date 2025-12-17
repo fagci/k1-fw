@@ -383,16 +383,21 @@ void BK4819_SetFilterBandwidth(BK4819_FilterBandwidth_t bw) {
   if (bw > 9)
     return;
 
-  bw = 9 - bw; // Fix for incremental order
+  //                                       v
+  /* static const uint8_t rf[] = {0, 1, 1, 3, 1, 2, 3, 4, 5, 7};
+  static const uint8_t wb[] = {0, 0, 1, 2, 0, 2, 2, 3, 4, 6};
+  static const uint8_t af[] = {1, 2, 0, 3, 0, 0, 7, 6, 5, 4};
+  static const uint8_t bs[] = {1, 1, 0, 0, 2, 2, 2, 2, 2, 2}; */
 
-  static const uint8_t rf[] = {7, 5, 4, 3, 2, 1, 3, 1, 1, 0};
-  static const uint8_t af[] = {4, 5, 6, 7, 0, 0, 3, 0, 2, 1};
-  static const uint8_t bs[] = {2, 2, 2, 2, 2, 2, 0, 0, 1, 1};
+  static const uint8_t rf[] = {3, 3, 4, 4, 4, 5, 5, 6, 6, 7};
+  static const uint8_t wb[] = {0, 0, 0, 0, 0, 1, 2, 3, 4, 5};
+  static const uint8_t af[] = {1, 1, 1, 1, 0, 0, 3, 3, 4, 4};
+  static const uint8_t bs[] = {1, 1, 0, 0, 2, 2, 2, 2, 2, 2};
 
   const uint16_t value = //
       (0u << 15)         //
       | (rf[bw] << 12)   //
-      | (rf[bw] << 9)    //
+      | (wb[bw] << 9)    //
       | (af[bw] << 6)    //
       | (bs[bw] << 4)    //
       | (1u << 3)        //
@@ -466,7 +471,7 @@ ModulationType BK4819_GetModulation(void) {
 }
 
 void BK4819_SetAF(BK4819_AF_Type_t af) {
-  BK4819_WriteRegister(BK4819_REG_47, 0x6040 | (af << 8));
+  BK4819_WriteRegister(BK4819_REG_47, 0x6042 | (af << 8));
 }
 
 void BK4819_SetModulation(ModulationType type) {
@@ -483,7 +488,6 @@ void BK4819_SetModulation(ModulationType type) {
   gLastModulation = type;
 
   const bool isSsb = (type == MOD_LSB || type == MOD_USB);
-  // const bool isFm = (type == MOD_FM || type == MOD_WFM);
 
   BK4819_SetAF(MOD_TYPE_REG47_VALUES[type]);
   BK4819_SetRegValue(RS_AFC_DIS, isSsb);
@@ -834,9 +838,9 @@ void BK4819_EnterTxMute(void) { BK4819_WriteRegister(BK4819_REG_50, 0xBB20); }
 void BK4819_ExitTxMute(void) { BK4819_WriteRegister(BK4819_REG_50, 0x3B20); }
 
 void BK4819_RX_TurnOn(void) {
-  BK4819_WriteRegister(BK4819_REG_36, 0x0000);
-  BK4819_WriteRegister(BK4819_REG_37, 0x9D1F | 1 << 9);
-  BK4819_WriteRegister(BK4819_REG_30, 0x0200);
+  // BK4819_WriteRegister(BK4819_REG_36, 0x0000);
+  BK4819_WriteRegister(BK4819_REG_37, 0x9F1F);
+  BK4819_WriteRegister(BK4819_REG_30, 0x0000);
   BK4819_WriteRegister(BK4819_REG_30, 0xBFF1);
 }
 
@@ -972,6 +976,79 @@ void BK4819_XtalSet(XtalMode mode) {
 
   BK4819_WriteRegister(0x3C, xtal);
   BK4819_WriteRegister(0x3D, ifset);
+}
+
+#define XTAL26M 0
+#define XTAL13M 1
+#define XTAL19M2 2
+#define XTAL12M8 3
+#define XTAL25M6 4
+#define XTAL38M4 5
+#define DEVIATION                                                              \
+  0x4F0 // 0~0xFFF, 0x5D0 for 13M/12.8M, 0x53A for 19.2M 0x3D0 for 38.4M
+
+void RF_SetXtal(uint8_t mode) {
+#define REG_40 0x3000
+  switch (mode) {
+  case XTAL26M:
+    BK4819_WriteRegister(0x40, REG_40 | DEVIATION);
+    break;
+
+  case XTAL13M:
+    BK4819_WriteRegister(0x40,
+                         REG_40 | DEVIATION); // DEVIATION=0x5D0 for example
+    BK4819_WriteRegister(0x41, 0x81C1);
+    BK4819_WriteRegister(0x3B, 0xAC40);
+    BK4819_WriteRegister(0x3C, 0x2708);
+    // BK4819_WriteRegister(0x3D,0x3555);
+    BK4819_WriteRegister(0x1D, 0x3555); // BPF
+    // BK4819_WriteRegister(0x1D,0x0000); //Zero_IF
+    // BK4819_WriteRegister(0x1D,0xeaab); //LPF
+    break;
+
+  case XTAL19M2:
+    BK4819_WriteRegister(0x40,
+                         REG_40 | DEVIATION); // DEVIATION=0x53A for example
+    BK4819_WriteRegister(0x41, 0x81C2);
+    BK4819_WriteRegister(0x3B, 0x9800);
+    BK4819_WriteRegister(0x3C, 0x3A48);
+    // BK4819_WriteRegister(0x3D,0x2E39);
+    BK4819_WriteRegister(0x1D, 0x2E39); // BPF
+    // BK4819_WriteRegister(0x1D,0x0000); //Zero_IF
+    // BK4819_WriteRegister(0x1D,0xe71d); //LPF
+    break;
+
+  case XTAL12M8:
+    BK4819_WriteRegister(0x40,
+                         REG_40 | DEVIATION); // DEVIATION=0x5D0 for example
+    BK4819_WriteRegister(0x41, 0x81C1);
+    BK4819_WriteRegister(0x3B, 0x1000);
+    BK4819_WriteRegister(0x3C, 0x2708);
+    // BK4819_WriteRegister(0x3D,0x3555);
+    BK4819_WriteRegister(0x1D, 0x3555); // BPF
+    // BK4819_WriteRegister(0x1D,0x0000); //Zero_IF
+    // BK4819_WriteRegister(0x1D,0xeaab); //LPF
+    break;
+
+  case XTAL25M6:
+    BK4819_WriteRegister(0x3B, 0x2000);
+    BK4819_WriteRegister(0x3C, 0x4E88);
+    BK4819_WriteRegister(0x3C, 0x4E88);
+    // REG_1D the same as XTAL26M
+    break;
+
+  case XTAL38M4:
+    BK4819_WriteRegister(0x40,
+                         REG_40 | DEVIATION); // DEVIATION=0x43A for example
+    BK4819_WriteRegister(0x41, 0x81C5);
+    BK4819_WriteRegister(0x3B, 0x3000);
+    BK4819_WriteRegister(0x3C, 0x75C8);
+    // BK4819_WriteRegister(0x3D,0x261C);
+    BK4819_WriteRegister(0x1D, 0x261C); // BPF
+    // BK4819_WriteRegister(0x1D,0x0000); //Zero_IF
+    // BK4819_WriteRegister(0x1D,0xe30e); //LPF
+    break;
+  }
 }
 
 // ============================================================================
@@ -1185,98 +1262,102 @@ void BK4819_Enable_AfDac_DiscMode_TxDsp(void) {
 // ============================================================================
 // Initialization
 // ============================================================================
-
-static void initialize_gpio_pins(void) {
-  CS_Release();
-  SCL_Set();
-  SDA_Set();
-}
-
-static void initialize_dtmf_coefficients(void) {
-  for (uint8_t i = 0; i < ARRAY_SIZE(DTMF_COEFFS); ++i) {
-    BK4819_WriteRegister(0x09, (i << 12) | DTMF_COEFFS[i]);
-  }
-}
-
-static void initialize_registers(void) {
-  // soft reset
-  BK4819_WriteRegister(BK4819_REG_00, 0x8000);
-  BK4819_WriteRegister(BK4819_REG_00, 0x0000);
-  // power up rf
-  // BK4819_WriteRegister(BK4819_REG_37, 0x1D0F);
-  BK4819_WriteRegister(BK4819_REG_37, 0x9D1F);
-
-  gGpioOutState = 0x9000;
-  BK4819_WriteRegister(BK4819_REG_33, gGpioOutState);
-
-  // PA
-  BK4819_SetupPowerAmplifier(0, 0);
-
-  BK4819_WriteRegister(BK4819_REG_1E, 0x4c58); // for some revisions
-  BK4819_WriteRegister(BK4819_REG_1F, 0x5454); // VCO, PLL
-
-  BK4819_SetAGC(true, AUTO_GAIN_INDEX);
-
-  BK4819_WriteRegister(BK4819_REG_3F, 0); // interrupts
-
-  BK4819_WriteRegister(BK4819_REG_3E, 0xA037); // band sel tres
-}
-
-static void initialize_audio(void) {
-  BK4819_WriteRegister(BK4819_REG_48,
-                       (11u << 12) |   // Reserved
-                           (0 << 10) | // AF Rx ATT-1: 0..-18dB (-6dB/step)
-                           (58 << 4) | // AF Rx Gain-2 (-26..5.5 dB, 0.5dB/step)
-                           (8 << 0)    // AF DAC Gain (0..15max 2dB/step)
-  );
-}
-
-static void wait_for_crystal_stabilization(void) {
-  while (BK4819_ReadRegister(BK4819_REG_0C) & 1U) {
-    BK4819_WriteRegister(BK4819_REG_02, 0);
-    SYSTICK_DelayMs(1);
-  }
-}
-
-static void configure_microphone_and_tx(void) {
-  BK4819_WriteRegister(BK4819_REG_19, 0x1041); // MIC PGA
-  // BK4819_WriteRegister(BK4819_REG_7D, 0xE940 | gSettings.mic); // MIC sens
-  BK4819_WriteRegister(BK4819_REG_7D, 0xE94F); // MIC sens
-  BK4819_WriteRegister(0x74, 0xAF1F);          // 3kHz response TX
-}
-
-static void configure_receiver(void) {
-  BK4819_ToggleGpioOut(BK4819_GPIO0_PIN28_RX_ENABLE, true);
-}
-
 static bool isInitialized = false;
 
-void _BK4819_Init(void) {
+void SetAGC(bool enable) {
+  uint16_t regVal = BK4819_ReadRegister(BK4819_REG_7E);
+  if (!(regVal & (1 << 15)) == enable)
+    return;
+
+  BK4819_WriteRegister(BK4819_REG_7E, (regVal & ~(1 << 15) & ~(0b111 << 12)) |
+                                          (!enable << 15) // 0  AGC fix mode
+                                          | (3u << 12)    // 3  AGC fix index
+  );
+
+  // if(enable) {
+  //  BK4819_WriteRegister(BK4819_REG_7B, 0x8420);
+  // }
+  // else {
+  //  BK4819_WriteRegister(BK4819_REG_7B, 0x318C);
+
+  //  BK4819_WriteRegister(BK4819_REG_7C, 0x595E);
+  //  BK4819_WriteRegister(BK4819_REG_20, 0x8DEF);
+
+  //  for (uint8_t i = 0; i < 8; i++) {
+  //      //BK4819_WriteRegister(BK4819_REG_06, ((i << 13) | 0x2500u) + 0x036u);
+  //      BK4819_WriteRegister(BK4819_REG_06, (i & 7) << 13 | 0x4A << 7 | 0x36);
+  //  }
+  // }
+}
+
+void InitAGC(bool amModulation) {
+  // REG_10, REG_11, REG_12 REG_13, REG_14
+  //
+  // Rx AGC Gain Table[]. (Index Max->Min is 3,2,1,0,-1)
+  //
+  // <15:10> ???
+  //
+  // <9:8>   LNA Gain Short
+  //         3 =   0dB  <<<       1o11                read from spectrum
+  //         reference manual 2 =                  -24dB               -19 -11
+  //         1 =                  -30dB               -24 -16 0 = -33dB -28 -19
+  //
+  // <7:5>   LNA Gain
+  //         7 =   0dB
+  //         6 =  -2dB
+  //         5 =  -4dB
+  //         4 =  -6dB
+  //         3 =  -9dB
+  //         2 = -14dB <<<
+  //         1 = -19dB
+  //         0 = -24dB
+  //
+  // <4:3>   MIXER Gain
+  //         3 =   0dB <<<
+  //         2 =  -3dB
+  //         1 =  -6dB
+  //         0 =  -8dB
+  //
+  // <2:0>   PGA Gain
+  //         7 =   0dB
+  //         6 =  -3dB <<<
+  //         5 =  -6dB
+  //         4 =  -9dB
+  //         3 = -15dB
+  //         2 = -21dB
+  //         1 = -27dB
+  //         0 = -33dB
+  //
+
+  BK4819_WriteRegister(BK4819_REG_13,
+                       0x03BE); // 0x03BE / 000000 11 101 11 110 /  -7dB
+  BK4819_WriteRegister(BK4819_REG_12,
+                       0x037B); // 0x037B / 000000 11 011 11 011 / -24dB
+  BK4819_WriteRegister(BK4819_REG_11,
+                       0x027B); // 0x027B / 000000 10 011 11 011 / -43dB
+  BK4819_WriteRegister(BK4819_REG_10,
+                       0x007A); // 0x007A / 000000 00 011 11 010 / -58dB
+  if (amModulation) {
+    BK4819_WriteRegister(BK4819_REG_14, 0x0000);
+    BK4819_WriteRegister(BK4819_REG_49, (0 << 14) | (50 << 7) | (32 << 0));
+  } else {
+    BK4819_WriteRegister(BK4819_REG_14,
+                         0x0019); // 0x0019 / 000000 00 000 11 001 / -79dB
+    BK4819_WriteRegister(BK4819_REG_49,
+                         (0 << 14) | (84 << 7) |
+                             (56 << 0)); // 0x2A38 / 00 1010100 0111000 / 84, 56
+  }
+
+  BK4819_WriteRegister(BK4819_REG_7B, 0x8420);
+}
+
+void BK4819_Init(void) {
   if (isInitialized) {
     return;
   }
   gSelectedFilter = 255;
   gLastFrequency = 0;
   gLastModulation = 255;
-  initialize_gpio_pins();
-  initialize_registers();
-  initialize_dtmf_coefficients();
-  initialize_audio();
-  wait_for_crystal_stabilization();
-  configure_microphone_and_tx();
-  configure_receiver();
-
-  BK4819_DisableDTMF();
-
-  // Set deviation
-  /* BK4819_WriteRegister(0x40, (BK4819_ReadRegister(0x40) & ~(0x7FF)) |
-                                 (gSettings.deviation * 10) | (1 << 12)); */
-  BK4819_WriteRegister(0x40, (BK4819_ReadRegister(0x40) & ~(0x7FF)) | (1450) |
-                                 (1 << 12));
-  isInitialized = true;
-}
-
-void BK4819_Init(void) {
   CS_Release();
   SCL_Set();
   SDA_Set();
@@ -1287,8 +1368,6 @@ void BK4819_Init(void) {
   BK4819_WriteRegister(BK4819_REG_37, 0x9D1F);
   BK4819_WriteRegister(BK4819_REG_36, 0x0022);
 
-  // BK4819_InitAGC(false);
-  // BK4819_SetAGC(true);
   BK4819_WriteRegister(BK4819_REG_10, 0x0318);
   BK4819_WriteRegister(BK4819_REG_11, 0x033A);
   BK4819_WriteRegister(BK4819_REG_12, 0x03DB);
@@ -1302,31 +1381,7 @@ void BK4819_Init(void) {
 
   BK4819_WriteRegister(BK4819_REG_7D, 0xE920);
 
-  // REG_48 .. RX AF level
-  //
-  // <15:12> 11  ???  0 to 15
-  //
-  // <11:10> 0 AF Rx Gain-1
-  //         0 =   0dB
-  //         1 =  -6dB
-  //         2 = -12dB
-  //         3 = -18dB
-  //
-  // <9:4>   60 AF Rx Gain-2  -26dB ~ 5.5dB   0.5dB/step
-  //         63 = max
-  //          0 = mute
-  //
-  // <3:0>   15 AF DAC Gain (after Gain-1 and Gain-2) approx 2dB/step
-  //         15 = max
-  //          0 = min
-  //
-  BK4819_WriteRegister(BK4819_REG_48, //  0xB3A8);     // 1011 00 111010 1000
-                                      // (11u << 12) |     // ??? 0..15
-                                      // ( 0u << 10) |     // AF Rx Gain-1
-                                      // (58u <<  4) |     // AF Rx Gain-2
-                                      // ( 8u <<  0));     // AF DAC Gain (after
-                                      // Gain-1 and Gain-2)
-                       0x33A8);
+  BK4819_WriteRegister(BK4819_REG_48, 0x33A8);
 
   BK4819_WriteRegister(0x40, 0x3516);
 
@@ -1360,4 +1415,17 @@ void BK4819_Init(void) {
 
   BK4819_WriteRegister(BK4819_REG_33, gGpioOutState);
   BK4819_WriteRegister(BK4819_REG_3F, 0);
+
+  BK4819_SetupPowerAmplifier(0, 0);
+  BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
+
+  // SetAGC(true);
+  // InitAGC(false);
+  // BK4819_WriteRegister(BK4819_REG_43, 0x3028);
+
+  /* BK4819_WriteRegister(0x40, (BK4819_ReadRegister(0x40) & ~(0x7FF)) |
+                                 (gSettings.deviation * 10) | (1 << 12)); */
+  BK4819_WriteRegister(0x40, (BK4819_ReadRegister(0x40) & ~(0x7FF)) | (1450) |
+                                 (1 << 12));
+  isInitialized = true;
 }

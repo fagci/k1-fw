@@ -55,8 +55,8 @@ void BOARD_GPIO_Init(void) {
   InitStruct.Pin = LL_GPIO_PIN_8 | LL_GPIO_PIN_6 | LL_GPIO_PIN_3;
   LL_GPIO_Init(GPIOA, &InitStruct);
 
-  // BK4819 SCK: B8
-  // BK4819 SDA: B9
+  // BK4829 SCK: B8
+  // BK4829 SDA: B9
   // LCD CS: PB2
   InitStruct.Pin = LL_GPIO_PIN_9 | LL_GPIO_PIN_8 | LL_GPIO_PIN_2;
   LL_GPIO_Init(GPIOB, &InitStruct);
