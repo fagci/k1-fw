@@ -1,7 +1,5 @@
 #include "board.h"
-#include "driver/audio.h"
 #include "driver/backlight.h"
-#include "driver/bk4819-regs.h"
 #include "driver/bk4829.h"
 #include "driver/keyboard.h"
 #include "driver/st7565.h"
@@ -9,136 +7,99 @@
 #include "driver/uart.h"
 #include "external/printf/printf.h"
 #include "helper/measurements.h"
+#include "spectrum.h"
 #include "ui/graphics.h"
 
-static const uint32_t fStart = 17200000;
-static const uint32_t fEnd = fStart + 2500 * LCD_WIDTH;
-static uint32_t f;
+static uint32_t g_sweep_delay = 1200;
 
-bool open;
-bool listening;
-
-static uint32_t delay = 1200;
-static uint16_t treshold = 70;
-
-uint16_t rssiHistory[LCD_WIDTH];
-bool redraw = true;
-uint32_t lastRedrawtime;
-
-typedef struct {
-  KEY_Code_t current;
-  KEY_Code_t prev;
-  uint8_t counter;
-} KeyboardState;
-
-KeyboardState kbd = {KEY_INVALID, KEY_INVALID, 0};
-
-static bool HandleUserInput() {
-  kbd.prev = kbd.current;
-  kbd.current = KEYBOARD_Poll();
-
-  if (kbd.current != KEY_INVALID && kbd.current == kbd.prev) {
-    if (kbd.counter < 16)
-      kbd.counter++;
-    else
-      kbd.counter -= 3;
-    SYSTICK_DelayMs(20);
-  } else {
-    kbd.counter = 0;
-  }
-
-  if (kbd.counter == 3 || kbd.counter == 16) {
-    switch (kbd.current) {
-    case KEY_1:
-    case KEY_7:
-      delay += kbd.current == KEY_1 ? 100 : -100;
-      return true;
-    default:
-      break;
-    }
-  }
-
-  return false;
-}
-
-uint16_t measure(uint32_t freq) {
+int16_t measure_level(uint32_t freq) {
   BK4819_TuneTo(freq, true);
-  SYSTICK_DelayUs(delay);
-  return BK4819_GetRSSI();
+  SYSTICK_DelayUs(g_sweep_delay);
+  uint16_t rssi = BK4819_GetRSSI();
+  // printf("msm: %u\n", rssi);
+
+  // Преобразовать RSSI в дБм * 10
+  // Калибровка зависит от вашего приёмника
+  int16_t dbm_x10 = Rssi2DBm(rssi) * 10; // Пример
+  return dbm_x10;
 }
 
-void tick() {
-  uint16_t rssi = measure(f);
-  uint8_t x = ConvertDomain(f, fStart, fEnd, 0, LCD_WIDTH - 1);
-  open = rssi >= treshold;
-
-  if (listening != open) {
-    listening = open;
-    if (listening) {
-      AUDIO_AudioPathOn();
-    } else {
-      AUDIO_AudioPathOff();
-    }
-    BK4819_ToggleGpioOut(BK4819_GREEN, listening);
-  } else if (listening) {
+void onKey(key_code_t key, key_event_t event) {
+  if (event != KEY_EVENT_PRESS && event != KEY_EVENT_REPEAT)
     return;
-  }
-  // printf("f=%u x=%u flt=%u rssi=%u\n", f, x, b, rssi);
 
-  if (rssi > rssiHistory[x]) {
-    rssiHistory[x] = rssi;
-  }
+  spectrum_config_t *cfg = spectrum_get_config();
 
-  if (f >= fEnd) {
-    f = fStart;
-    UI_ClearScreen();
+  switch (key) {
+  case KEY_UP:
+    spectrum_adjust_ref_level(1); // +1 дБ
+    break;
 
-    uint16_t mi = 512;
-    uint16_t ma = 0;
-    for (uint8_t i = 0; i < LCD_WIDTH; ++i) {
-      uint16_t r = rssiHistory[i];
-      if (r > ma)
-        ma = r;
-      if (r < mi && r > 0)
-        mi = r;
+  case KEY_DOWN:
+    spectrum_adjust_ref_level(-1); // -1 дБ
+    break;
+
+  case KEY_1: // Zoom In
+    spectrum_zoom_in();
+    break;
+
+  case KEY_2: // Zoom Out
+    spectrum_zoom_out();
+    break;
+
+  case KEY_3: // Marker влево
+    spectrum_marker_move(cfg->active_marker, -1);
+    break;
+
+  case KEY_6: // Marker вправо
+    spectrum_marker_move(cfg->active_marker, 1);
+    break;
+
+  case KEY_5: // Marker -> Center
+    spectrum_marker_to_center(cfg->active_marker);
+    break;
+
+  case KEY_STAR: // Marker -> Peak
+    spectrum_marker_to_peak(cfg->active_marker);
+    break;
+
+  case KEY_0: // Переключение маркера
+    cfg->active_marker = (cfg->active_marker + 1) % MAX_MARKERS;
+    spectrum_marker_enable(cfg->active_marker, true);
+    break;
+
+  case KEY_7: // Увеличить задержку
+    g_sweep_delay += 100;
+    cfg->sweep_delay_us = g_sweep_delay;
+    break;
+
+  case KEY_4: // Уменьшить задержку
+    if (g_sweep_delay > 100) {
+      g_sweep_delay -= 100;
+      cfg->sweep_delay_us = g_sweep_delay;
     }
+    break;
 
-    uint16_t realMax = ma;
+  case KEY_8: // Переключение режима
+    display_mode_t mode = cfg->display_mode;
+    mode = (mode + 1) % 3;
+    spectrum_set_mode(mode);
+    if (mode == DISPLAY_MODE_MAX_HOLD)
+      spectrum_clear_max_hold();
+    break;
 
-    uint16_t scale = ma - mi;
-    if (scale < 40) {
-      ma = mi + 40;
-    }
+  case KEY_9: // Auto Scale
+    spectrum_auto_scale();
+    break;
 
-    for (uint8_t i = 0; i < LCD_WIDTH; ++i) {
-      uint16_t r = rssiHistory[i];
-      if (r > 0) {
-        uint8_t v = ConvertDomain(r, mi, ma, 1, LCD_HEIGHT - 16);
-        DrawVLine(i, LCD_HEIGHT - v, v, C_FILL);
-      }
-    }
-    for (uint8_t i = 0; i < LCD_WIDTH; ++i) {
-      rssiHistory[i] = 0;
-    }
-
-    PrintSmall(0, 14, "%uus", delay);
-    PrintSmall(0, 14 + 8, "Max: %u (%u)", realMax, ma);
-    PrintSmall(0, 20 + 8, "Min: %u", mi);
-    DrawHLine(0, ConvertDomain(treshold, mi, ma, LCD_HEIGHT, LCD_HEIGHT - 16),
-              LCD_WIDTH, C_FILL);
-    redraw = true;
-  } else {
-    f += 2500;
-  }
-
-  if (redraw && Now() - lastRedrawtime >= 40) {
-    redraw = false;
-    lastRedrawtime = Now();
-    ST7565_BlitFullScreen();
+  case KEY_F: // Toggle Grid
+    cfg->grid_enabled = !cfg->grid_enabled;
+    break;
   }
 }
 
 int main(void) {
+  // Инициализация как у вас
   SYSTICK_Init();
   BOARD_Init();
   UART_Init();
@@ -146,19 +107,30 @@ int main(void) {
   BK4819_ToggleGpioOut(BK4819_GPIO0_PIN28_RX_ENABLE, true);
   BK4819_RX_TurnOn();
 
-  f = fStart;
-  BK4819_TuneTo(f, true);
-  BK4819_SelectFilter(f);
+  BK4819_SelectFilter(17200000);
   BK4819_SetFilterBandwidth(BK4819_FILTER_BW_12k);
   BK4819_SetModulation(MOD_FM);
   BK4819_SetAGC(true, 0);
 
   BACKLIGHT_TurnOn();
+  keyboard_init(onKey);
+
+  // Инициализация анализатора спектра
+  spectrum_init(measure_level);
+
+  // Настройка диапазона
+  spectrum_set_start_stop(17200000, 17200000 + 2500 * LCD_WIDTH);
+
+  uint32_t last_sweep = 0;
 
   for (;;) {
-    if (HandleUserInput()) {
-      redraw = true;
+    keyboard_tick_1ms();
+    spectrum_tick();
+
+    if (spectrum_is_complete()) {
+      spectrum_draw();
+      ST7565_BlitFullScreen();
+      spectrum_reset_sweep();
     }
-    tick();
   }
 }
