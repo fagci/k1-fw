@@ -40,7 +40,7 @@ static uint32_t testF = 17230000;
 void measure() {
   BK4819_SelectFilter(msm.f);
   BK4819_TuneTo(msm.f, precise);
-  SYSTICK_DelayUs(precise ? delay : 1);
+  SYSTICK_DelayUs(delay);
   msm.rssi = BK4819_GetRSSI();
   SP_AddPoint(&msm);
 }

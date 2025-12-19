@@ -114,6 +114,23 @@ static inline uint16_t scale_frequency(uint16_t freq) {
   return (((uint32_t)freq * 1353245u) + (1u << 16)) >> 17; // with rounding
 }
 
+static uint8_t BK_SPI_Transfer8(uint8_t data)
+{
+    while (!LL_SPI_IsActiveFlag_TXE(SPI1));
+    LL_SPI_TransmitData8(SPI1, data);
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
+    return LL_SPI_ReceiveData8(SPI1);
+}
+
+static uint16_t BK_SPI_Transfer16(void)
+{
+    uint16_t value = 0;
+    value  = BK_SPI_Transfer8(0x00) << 8;
+    value |= BK_SPI_Transfer8(0x00);
+    return value;
+}
+
+
 static uint16_t BK4819_ReadU16(void) {
   unsigned int i;
   uint16_t Value;
