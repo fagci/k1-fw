@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h> // NULL
+#include <string.h>
 
 #include "../misc.h"
 #include "gpio.h"
@@ -15,6 +16,7 @@
 #define PIN_A0 GPIO_MAKE_PIN(GPIOA, LL_GPIO_PIN_6)
 
 uint8_t gFrameBuffer[FRAME_LINES][LCD_WIDTH];
+static uint8_t frameBufferSecond[8][LCD_WIDTH];
 static uint32_t gLastRender;
 bool gRedrawScreen = true;
 
@@ -93,12 +95,34 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line,
   CS_Release();
 }
 
-void ST7565_Blit(void) {
+/* void ST7565_Blit(void) {
   CS_Assert();
   ST7565_WriteByte(0x40);
   for (unsigned line = 0; line < FRAME_LINES; line++) {
     DrawLine(0, line, gFrameBuffer[line], LCD_WIDTH);
   }
+  CS_Release();
+} */
+
+void ST7565_Blit(void) {
+  uint8_t Line;
+  uint8_t Column;
+
+  CS_Assert();
+  ST7565_WriteByte(0x40);
+
+  for (Line = 0; Line < ARRAY_SIZE(gFrameBuffer); Line++) {
+    if (memcmp(gFrameBuffer[Line], frameBufferSecond[Line],
+               ARRAY_SIZE(frameBufferSecond[Line])) == 0) {
+      continue;
+    }
+
+    DrawLine(0, Line, gFrameBuffer[Line], LCD_WIDTH);
+
+    memcpy(frameBufferSecond[Line], gFrameBuffer[Line],
+           ARRAY_SIZE(frameBufferSecond[Line]));
+  }
+
   CS_Release();
 }
 
