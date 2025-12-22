@@ -111,7 +111,7 @@ typedef struct {
   union {
     struct {
       uint32_t rxF : 27;
-      int8_t ppm : 5;
+      int32_t ppm : 5;
 
       uint32_t txF : 27;
 

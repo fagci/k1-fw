@@ -369,8 +369,8 @@ static void renderMonitorMode(uint8_t BASE) {
     };
 
     static const struct {
-      uint8_t min;
-      uint8_t max;
+      uint16_t min;
+      uint16_t max;
     } graphRanges[] = {
         [GRAPH_RSSI] = {RSSI_MIN, RSSI_MAX},
         [GRAPH_NOISE] = {0, 255},

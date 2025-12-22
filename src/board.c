@@ -7,6 +7,7 @@
 #include "driver/st7565.h"
 #include "external/PY32F071_HAL_Driver/Inc/py32f071_ll_adc.h"
 #include "external/PY32F071_HAL_Driver/Inc/py32f071_ll_bus.h"
+#include "external/PY32F071_HAL_Driver/Inc/py32f071_ll_dac.h"
 #include "external/PY32F071_HAL_Driver/Inc/py32f071_ll_gpio.h"
 #include "external/PY32F071_HAL_Driver/Inc/py32f071_ll_rcc.h"
 #include <stdint.h>
@@ -98,8 +99,8 @@ void BOARD_ADC_Init(void) {
   LL_ADC_REG_SetSequencerRanks(ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_8);
   LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_8,
                                 LL_ADC_SAMPLINGTIME_41CYCLES_5);
-  LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_9,
-                                LL_ADC_SAMPLINGTIME_41CYCLES_5);
+  /* LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_9,
+                                LL_ADC_SAMPLINGTIME_41CYCLES_5); */
 
   LL_ADC_StartCalibration(ADC1);
   while (LL_ADC_IsCalibrationOnGoing(ADC1))
@@ -118,10 +119,48 @@ void BOARD_ADC_GetBatteryInfo(uint16_t *pVoltage, uint16_t *pCurrent) {
   *pCurrent = 0;
 }
 
+/* uint16_t BOARD_ADC_GetAPRS() {
+  uint16_t v;
+  // Переключение на канал 9 (PB1) и чтение current
+  LL_ADC_REG_SetSequencerRanks(ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_9);
+  LL_ADC_REG_StartConversionSWStart(ADC1);
+  while (!LL_ADC_IsActiveFlag_EOS(ADC1))
+    ;
+  LL_ADC_ClearFlag_EOS(ADC1);
+  v = LL_ADC_REG_ReadConversionData12(ADC1);
+
+  // Возврат к каналу 8
+  LL_ADC_REG_SetSequencerRanks(ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_8);
+  return v;
+} */
+
+void BOARD_DAC_Init(void) {
+  // Настроить PA4 как аналоговый пин
+  LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_4, LL_GPIO_MODE_ANALOG);
+
+  // Включить тактирование DAC
+  LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_DAC1);
+
+  // Настроить DAC Channel 1 (PA4)
+  LL_DAC_SetTriggerSource(DAC1, LL_DAC_CHANNEL_1, LL_DAC_TRIG_SOFTWARE);
+  LL_DAC_SetOutputBuffer(DAC1, LL_DAC_CHANNEL_1, LL_DAC_OUTPUT_BUFFER_ENABLE);
+
+  // Включить DAC Channel 1
+  LL_DAC_Enable(DAC1, LL_DAC_CHANNEL_1);
+}
+
+void BOARD_DAC_SetValue(uint16_t value) {
+  if (value > 4095)
+    value = 4095; // Ограничение 12-bit
+  LL_DAC_ConvertData12RightAligned(DAC1, LL_DAC_CHANNEL_1, value);
+  LL_DAC_TrigSWConversion(DAC1, LL_DAC_CHANNEL_1);
+}
+
 void BOARD_Init(void) {
   BOARD_GPIO_Init();
   BACKLIGHT_InitHardware();
   BOARD_ADC_Init();
+  BOARD_DAC_Init();
   PY25Q16_Init();
   ST7565_Init();
 }

@@ -13,4 +13,7 @@ void BOARD_FlashlightToggle();
 void BOARD_ToggleRed(bool on);
 void BOARD_ToggleGreen(bool on);
 
+uint16_t BOARD_ADC_GetAPRS();
+void BOARD_DAC_SetValue(uint16_t value);
+
 #endif

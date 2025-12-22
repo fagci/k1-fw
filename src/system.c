@@ -121,7 +121,7 @@ static void onKey(KEY_Code_t key, KEY_State_t state) {
   } else {
     LogC(LOG_C_BRIGHT_WHITE, "[SYS] Global key %u %u", key, state);
     if (key == KEY_MENU) {
-      if (state == KEY_LONG_PRESSED) {
+      if (state == KEY_LONG_PRESSED || state == KEY_LONG_PRESSED_CONT) {
         APPS_run(APP_SETTINGS);
       } else if (state == KEY_RELEASED) {
         APPS_run(APP_APPS_LIST);

@@ -1,4 +1,5 @@
 #include "board.h"
+#include "driver/gpio.h"
 #include "driver/systick.h"
 #include "driver/uart.h"
 #include "external/printf/printf.h"
@@ -11,6 +12,8 @@ int main(void) {
   UART_Init();
 
   printf("Hawk\n");
+
+  GPIO_EnableAudioPath();
 
   SYS_Main();
 }
