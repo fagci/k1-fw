@@ -23,40 +23,27 @@ SRC := $(wildcard $(SRC_DIR)/*.c) \
        $(wildcard $(SRC_DIR)/ui/*.c) \
        $(wildcard $(SRC_DIR)/apps/*.c)
 
-TINYUSB_DIR := src/external/tinyusb
-TINYUSB_PORT_DIR := $(TINYUSB_DIR)/portable/$(TINYUSB_PORT)
-TINYUSB_LIB_DIR := $(TINYUSB_DIR)/lib
-
-TINYUSB_SRCS = \
-
-CFLAGS += -I$(TINYUSB_DIR)/src -DTUD_RHPORT
-
 OBJS := $(OBJ_DIR)/start.o \
         $(OBJ_DIR)/init.o \
         $(OBJ_DIR)/external/printf/printf.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_adc.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_comp.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_crc.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_dac.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_dma.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_exti.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_gpio.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_i2c.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_lptim.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_pwr.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_rcc.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_rtc.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_spi.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_tim.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_usart.o \
-		$(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_utils.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_adc.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_comp.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_crc.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_dac.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_dma.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_exti.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_gpio.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_i2c.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_lptim.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_pwr.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_rcc.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_rtc.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_spi.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_tim.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_usart.o \
-		$(OBJ_DIR)/external/littlefs/lfs.o \
-		$(OBJ_DIR)/external/littlefs/lfs_util.o \
+        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_utils.o \
+        $(OBJ_DIR)/external/littlefs/lfs.o \
+        $(OBJ_DIR)/external/littlefs/lfs_util.o \
         $(SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
 # =============================================================================
@@ -74,8 +61,7 @@ SIZE     := $(TOOLCHAIN_PREFIX)size
 # =============================================================================
 # Common flags for AS and CC
 COMMON_FLAGS := -mcpu=cortex-m0plus -mthumb -mabi=aapcs
-OPTIMIZATION := -Os -flto=auto -ffunction-sections -fdata-sections -ffast-math -funroll-loops
-# OPTIMIZATION := -Os -ffunction-sections -fdata-sections
+OPTIMIZATION := -Os -flto=auto -ffunction-sections -fdata-sections
 
 # Assembler flags
 ASFLAGS  := $(COMMON_FLAGS) -c
@@ -86,10 +72,10 @@ CFLAGS   := $(COMMON_FLAGS) $(OPTIMIZATION) \
             -Wall -Wextra \
             -Wno-missing-field-initializers \
             -Wno-incompatible-pointer-types \
-			-Wno-strict-aliasing \
+            -Wno-strict-aliasing \
             -Wno-unused-function -Wno-unused-variable \
             -fno-builtin -fshort-enums \
-			-Wno-unused-parameter \
+            -Wno-unused-parameter \
             -fno-delete-null-pointer-checks \
             -fsingle-precision-constant \
             -finline-functions-called-once \
@@ -104,33 +90,34 @@ DEFINES  := -DPRINTF_INCLUDE_CONFIG_H \
             -DGIT_HASH=\"$(GIT_HASH)\" \
             -DTIME_STAMP=\"$(BUILD_TIME)\" \
             -DPY32F071xB \
-			-DUSE_FULL_LL_DRIVER \
-			-DLFS_NO_MALLOC \
-			-DLFS_NO_ASSERT \
-			-DLFS_NO_DEBUG \
-			-DLFS_NO_WARN \
-			-DLFS_NO_ERROR
+            -DUSE_FULL_LL_DRIVER \
+            -DTUD_RHPORT \
+            -DLFS_NO_MALLOC \
+            -DLFS_NO_ASSERT \
+            -DLFS_NO_DEBUG \
+            -DLFS_NO_WARN \
+            -DLFS_NO_ERROR
 
 # Include paths
 INC_DIRS := -I./src/config \
-			-I./src/external/CMSIS/Device/PY32F071/Include \
-			-I./src/external/CMSIS/Include \
-			-I./src/external/littlefs \
-			-I./src/external/PY32F071_HAL_Driver/Inc
+            -I./src/external/CMSIS/Device/PY32F071/Include \
+            -I./src/external/CMSIS/Include \
+            -I./src/external/littlefs \
+            -I./src/external/PY32F071_HAL_Driver/Inc \
+            -I./src/external/tinyusb/src
 
 # =============================================================================
 # Linker Flags
 # =============================================================================
 
-LDFLAGS  := $(COMMON_FLAGS) $(OPTIMIZATION) \
+LDFLAGS  := $(COMMON_FLAGS) \
             -nostartfiles \
             -Tfirmware.ld \
             -lnosys -lm \
-			-nostdlib \
-			-ffreestanding \
-			-fno-builtin \
+            -nostdlib \
+            -ffreestanding \
             -Wl,--gc-sections \
-			--specs=nano.specs \
+            --specs=nano.specs \
             -Wl,--build-id=none \
             -Wl,--print-memory-usage \
             -Wl,-Map=$(OBJ_DIR)/output.map
@@ -162,7 +149,7 @@ debug:
 	@$(MAKE) BUILD_TYPE=debug all
 
 # Release сборка с копированием
-release: clean
+release:
 	@$(MAKE) BUILD_TYPE=release all
 	@cp $(TARGET).bin $(BIN_DIR)/k1-fw-alfa-by-fagci-$(BUILD_TAG).bin
 	@echo "Release firmware: $(BIN_DIR)/k1-fw-alfa-by-fagci-$(BUILD_TAG).bin"
@@ -182,7 +169,7 @@ $(TARGET): $(OBJS) | $(BIN_DIR)
 	@echo ""
 
 # Компиляция C файлов
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(BSP_HEADERS) $(OBJ_DIR)
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	@mkdir -p $(@D)
 	@echo "CC $<"
 	@$(CC) $(CFLAGS) $(DEFINES) $(INC_DIRS) -c $< -o $@
@@ -192,13 +179,6 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.s | $(OBJ_DIR)
 	@mkdir -p $(@D)
 	@echo "AS $<"
 	@$(AS) $(ASFLAGS) $< -o $@
-
-# Генерация BSP заголовков
-inc/%/%.h: hardware/%/%.def
-	@mkdir -p $(@D)
-	@echo "Generating BSP header: $@"
-	# TODO: Add your header generation command here
-	@touch $@
 
 # Создание директорий
 $(BIN_DIR) $(OBJ_DIR):
@@ -226,13 +206,13 @@ info:
 # Очистка
 clean:
 	@echo "Cleaning build artifacts..."
-	@rm -rf $(TARGET) $(TARGET).* $(OBJ_DIR) $(BIN_DIR)/*.bin inc/
+	@rm -rf $(TARGET) $(TARGET).* $(OBJ_DIR) $(BIN_DIR)/*.bin
 	@echo "Clean completed"
 
 # Очистка всего включая зависимости
-distclean: clean
+distclean:
 	@echo "Deep cleaning..."
-	@rm -rf $(BIN_DIR)
+	@rm -rf $(OBJ_DIR) $(BIN_DIR)
 	@echo "Distclean completed"
 
 # Помощь
