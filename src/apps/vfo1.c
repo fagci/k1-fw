@@ -317,7 +317,7 @@ static void renderTxRxState(uint8_t y, bool isTx) {
     if (ctx->tx_state.is_active) {
       PrintMediumEx(0, 21, POS_L, C_FILL, "TX");
     } else {
-      PrintMediumBoldEx(LCD_XCENTER, y, POS_C, C_FILL, "%s",
+      PrintMediumEx(LCD_XCENTER, y, POS_C, C_FILL, "%s",
                         RADIO_GetParamValueString(ctx, PARAM_TX_STATE));
     }
   } else if (vfo->msm.open) {

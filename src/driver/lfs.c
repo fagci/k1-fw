@@ -21,37 +21,11 @@ static int lfs_read(const struct lfs_config *c, lfs_block_t block,
 }
 
 // Программирование блока
+// lfs гарантирует, что блок стёрт перед вызовом prog (через lfs_erase).
+// Для NOR flash/SPI flash prog только сбрасывает биты 1→0.
 static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
                     lfs_off_t off, const void *buffer, lfs_size_t size) {
   uint32_t addr = block * c->block_size + off;
-
-  // Проверяем, нужно ли стирание
-  uint8_t current[256];
-  bool needs_erase = false;
-
-  // Проверяем по секторам
-  for (lfs_size_t i = 0; i < size; i += 256) {
-    lfs_size_t chunk = (size - i) < 256 ? (size - i) : 256;
-    PY25Q16_ReadBuffer(addr + i, current, chunk);
-
-    for (lfs_size_t j = 0; j < chunk; j++) {
-      if ((current[j] & ((uint8_t *)buffer)[i + j]) !=
-          ((uint8_t *)buffer)[i + j]) {
-        needs_erase = true;
-        break;
-      }
-    }
-    if (needs_erase)
-      break;
-  }
-
-  if (needs_erase) {
-    // Стираем весь блок
-    PY25Q16_SectorErase(block * c->block_size);
-    gStorage.erase_count++;
-  }
-
-  // Записываем данные
   PY25Q16_WriteBuffer(addr, (uint8_t *)buffer, size, true);
   gStorage.prog_count++;
   return 0;
@@ -73,20 +47,7 @@ static int lfs_sync(const struct lfs_config *c) {
 int lfs_storage_init(lfs_storage_t *storage) {
   memset(storage, 0, sizeof(lfs_storage_t));
 
-  // Настраиваем конфигурацию
   storage->config.context = NULL;
-  storage->config.read = lfs_read;
-  storage->config.prog = lfs_prog;
-  storage->config.erase = lfs_erase;
-  storage->config.sync = lfs_sync;
-
-  storage->config.block_cycles = 500; // Количество перезаписей блока
-
-  // Адреса для wear-leveling (опционально)
-  storage->config.read_buffer = NULL;
-  storage->config.prog_buffer = NULL;
-  storage->config.lookahead_buffer = NULL;
-
   storage->config.read = lfs_read;
   storage->config.prog = lfs_prog;
   storage->config.erase = lfs_erase;
@@ -97,6 +58,7 @@ int lfs_storage_init(lfs_storage_t *storage) {
   storage->config.block_count = LFS_BLOCK_COUNT;
   storage->config.cache_size = LFS_CACHE_SIZE;
   storage->config.lookahead_size = LFS_LOOKAHEAD_SIZE;
+  storage->config.block_cycles = 500;
   storage->config.read_buffer = lfs_read_buffer;
   storage->config.prog_buffer = lfs_prog_buffer;
   storage->config.lookahead_buffer = lfs_lookahead_buffer;

@@ -1,9 +1,7 @@
 #include "graphics.h"
 #include "../misc.h"
 #include "fonts/NumbersStepanv3.h"
-#include "fonts/NumbersStepanv4.h"
 #include "fonts/TomThumb.h"
-#include "fonts/muHeavy8ptBold.h"
 #include "fonts/muMatrix8ptRegular.h"
 #include "fonts/symbols.h"
 #include <stdlib.h>
@@ -11,8 +9,7 @@
 
 static Cursor cursor;
 
-static const GFXfont *const fonts[] = {&TomThumb, &MuMatrix8ptRegular,
-                                       &muHeavy8ptBold, &dig_11, &dig_14};
+static const GFXfont *const fonts[] = {&TomThumb, &MuMatrix8ptRegular, &dig_14};
 
 void UI_ClearStatus(void) { FillRect(0, 0, LCD_WIDTH, 7, C_CLEAR); }
 void UI_ClearScreen(void) {
@@ -407,9 +404,7 @@ static void printStr(const GFXfont *f, uint8_t x, uint8_t y, Color col,
 
 P(Small, 0)  PX(Small, 0)
 P(Medium, 1) PX(Medium, 1)
-P(MediumBold, 2) PX(MediumBold, 2)
-P(BigDigits, 3)  PX(BigDigits, 3)
-P(BiggestDigits, 4) PX(BiggestDigits, 4)
+P(BiggestDigits, 2) PX(BiggestDigits, 2)
 
 void PrintSymbolsEx(uint8_t x, uint8_t y, TextPos p, Color c, const char *f,
                     ...) {

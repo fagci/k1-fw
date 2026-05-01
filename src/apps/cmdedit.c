@@ -105,7 +105,7 @@ static void LoadFile(const char *filename) {
 
 static void ShowMsg(const char *msg) {
   FillRect(0, LCD_YCENTER - 5, LCD_WIDTH, 10, C_FILL);
-  PrintMediumBoldEx(LCD_XCENTER, LCD_YCENTER + 3, POS_C, C_INVERT, msg);
+  PrintMediumEx(LCD_XCENTER, LCD_YCENTER + 3, POS_C, C_INVERT, msg);
   ST7565_Blit();
   SYSTICK_DelayMs(800);
 }

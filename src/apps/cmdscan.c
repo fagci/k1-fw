@@ -125,7 +125,7 @@ static void RenderCommandInfo(void) {
   // Индикатор паузы
   if (SCAN_IsCommandMode()) {
     /* if (SCAN_IsCommandPaused()) {
-      PrintMediumBoldEx(LCD_XCENTER, LCD_HEIGHT - 30, POS_C, C_INVERT,
+      PrintMediumEx(LCD_XCENTER, LCD_HEIGHT - 30, POS_C, C_INVERT,
                         "PAUSED");
     } */
   }
@@ -296,7 +296,7 @@ void CMDSCAN_render(void) {
   }
 
   mhzToS(freqBuf, vfo->msm.f);
-  PrintMediumBoldEx(LCD_XCENTER, 12 + 8 + 8, POS_C, C_FILL, "%s", freqBuf);
+  PrintMediumEx(LCD_XCENTER, 12 + 8 + 8, POS_C, C_FILL, "%s", freqBuf);
 
   if (vfo->is_open) {
     UI_RSSIBar(41);

@@ -168,7 +168,7 @@ static void cbSaveToChannel(uint32_t chnum, uint32_t _) {
 
 static void saveToFreeChannels(bool saveWhitelist, uint16_t scanlist) {
   FillRect(0, LCD_YCENTER - 4, LCD_WIDTH, 9, C_FILL);
-  PrintMediumBoldEx(LCD_XCENTER, LCD_YCENTER + 3, POS_C, C_INVERT, "Saving...");
+  PrintMediumEx(LCD_XCENTER, LCD_YCENTER + 3, POS_C, C_INVERT, "Saving...");
   ST7565_Blit();
   uint32_t saved = 0;
   uint16_t chnum = 4096; // Move outside loop to prevent saving to same channel
@@ -200,7 +200,7 @@ static void saveToFreeChannels(bool saveWhitelist, uint16_t scanlist) {
   }
 
   FillRect(0, LCD_YCENTER - 4, LCD_WIDTH, 9, C_FILL);
-  PrintMediumBoldEx(LCD_XCENTER, LCD_YCENTER + 3, POS_C, C_INVERT, "Saved: %u",
+  PrintMediumEx(LCD_XCENTER, LCD_YCENTER + 3, POS_C, C_INVERT, "Saved: %u",
                     saved);
   ST7565_Blit();
   SYSTICK_DelayMs(2000);

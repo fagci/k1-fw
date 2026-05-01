@@ -94,7 +94,7 @@ void UI_RenderScanScreen() {
     if (vfo->is_open)
       UI_RSSIBar(28);
   } else { */
-  PrintMediumBoldEx(LCD_XCENTER, 18, POS_C, C_FILL, "Scanlist empty");
+  PrintMediumEx(LCD_XCENTER, 18, POS_C, C_FILL, "Scanlist empty");
   // }
 
   /* if (gLastActiveLoot) {
