@@ -83,7 +83,6 @@ static void SPI_Init() {
   LL_SPI_Enable(SPIx);
 }
 
-// УПРОЩЕННАЯ функция SPI_ReadBuf без таймаута в основном цикле
 static void SPI_ReadBuf(uint8_t *Buf, uint32_t Size) {
   LL_SPI_Disable(SPIx);
   LL_DMA_DisableChannel(DMA1, CHANNEL_RD);
@@ -131,7 +130,6 @@ static void SPI_ReadBuf(uint8_t *Buf, uint32_t Size) {
   LL_SPI_EnableDMAReq_TX(SPIx);
 }
 
-// УПРОЩЕННАЯ функция SPI_WriteBuf без таймаута в основном цикле
 static void SPI_WriteBuf(const uint8_t *Buf, uint32_t Size) {
   gEepromWrite = true;
   LL_SPI_Disable(SPIx);
@@ -198,12 +196,22 @@ static bool wait_for_dma_complete(uint32_t max_wait_ms) {
   return true;
 }
 
-static uint8_t SPI_WriteByte(uint8_t Value) {
-  while (!LL_SPI_IsActiveFlag_TXE(SPIx))
-    ;
+static __attribute__((noinline)) uint8_t SPI_WriteByte(uint8_t Value) {
+  uint32_t start = Now();
+  while (!LL_SPI_IsActiveFlag_TXE(SPIx)) {
+    if (Now() - start > 100) {
+      CS_Release();
+      return 0xFF;
+    }
+  }
   LL_SPI_TransmitData8(SPIx, Value);
-  while (!LL_SPI_IsActiveFlag_RXNE(SPIx))
-    ;
+  start = Now();
+  while (!LL_SPI_IsActiveFlag_RXNE(SPIx)) {
+    if (Now() - start > 100) {
+      CS_Release();
+      return 0xFF;
+    }
+  }
   return LL_SPI_ReceiveData8(SPIx);
 }
 
@@ -337,7 +345,8 @@ void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size) {
 
 void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size,
                          bool Append) {
-  flash_lock();
+  if (!flash_lock())
+    return;
 #ifdef DEBUG
   printf("WriteBuffer: 0x%06lx, %lu bytes\n", Address, Size);
 #endif
@@ -384,7 +393,8 @@ void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size,
 }
 
 void PY25Q16_SectorErase(uint32_t Address) {
-  flash_lock();
+  if (!flash_lock())
+    return;
   Address &= ~(SECTOR_SIZE - 1);
 
 #ifdef DEBUG

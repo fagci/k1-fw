@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 // Простая блокировка для флеш-памяти
-void flash_lock(void);
+bool flash_lock(void);
 void flash_unlock(void);
 bool flash_is_locked(void);
 
