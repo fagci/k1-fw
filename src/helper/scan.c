@@ -14,27 +14,12 @@
 #define SOFT_SQ_HEADROOM 25 // % смягчения аппаратных порогов
 #define STE_DEBOUNCE_MS 250 // окно подавления STE-хвоста
 
-// --- Адаптивный детектор (EMA) ---
-#define ADAP_MIN_SAMPLES 8 // прогрев
-#define ADAP_EMA_SHIFT 4   // alpha = 1/16
-#define ADAP_WARMUP_SHIFT 2 // alpha = 1/4 при прогреве (быстрая сходимость)
-#define DELTA_RSSI_THRESH 8  // порог резкого роста rssi
-#define DELTA_NOISE_THRESH 4 // порог резкого падения noise
-#define FLOOR_MARGIN_RSSI 6  // запас над EMA rssi
-#define FLOOR_MARGIN_NOISE 3 // запас под EMA noise
-#define FLOOR_MARGIN_GLITCH 3
+// Адаптивный порог: снижается раз в N шагов без сигнала
+#define SQ_DECAY_STEPS 64
 
-typedef struct {
-  uint16_t rssiEma; // значение << ADAP_EMA_SHIFT
-  uint16_t noiseEma;
-  uint16_t glitchEma;
-  uint8_t count;
-  uint8_t prevRssi;
-  uint8_t prevNoise;
-  uint8_t prevGlitch;
-} AdaptiveFloor;
-
-static AdaptiveFloor afloor;
+static uint16_t sqLevel = 0;
+static uint8_t sqStepsPassed = 0;
+static bool sqWasThinking = false;
 
 static ScanContext scan = {
     .state = SCAN_STATE_IDLE,
@@ -85,105 +70,11 @@ static bool IsSqOpenGated(void) {
   return BK4819_IsSquelchOpen() && (Now() >= sqReopenAt);
 }
 
-// Пороги из GetSql(), смягчённые на SOFT_SQ_HEADROOM%:
-//   rssi: на 15% ниже порога открытия (ловим раньше)
-//   noise/glitch: на 15% выше (терпим больше)
-static bool SoftSq_Check(uint8_t rssi, uint8_t noise, uint8_t glitch) {
-  SQL sq = GetSql((uint8_t)RADIO_GetParam(ctx, PARAM_SQUELCH_VALUE));
-
-  if (rssi < (uint16_t)sq.ro * (100 - SOFT_SQ_HEADROOM) / 100)
-    return false;
-
-  uint8_t softNo = (uint8_t)((uint16_t)sq.no * (100 + SOFT_SQ_HEADROOM) / 100);
-  uint8_t softGo = (uint8_t)((uint16_t)sq.go * (100 + SOFT_SQ_HEADROOM) / 100);
-
-  switch (ctx->squelch.type) {
-  case 0:
-    return (noise <= softNo) && (glitch <= softGo); // RNG
-  case 1:
-    return (glitch <= softGo); // RG
-  case 2:
-    return (noise <= softNo); // RN
-  default:
-    return true; // R
-  }
-}
-
-// --- Адаптивный пол шума (EMA) ---
-
-// обновление EMA: ema += (sample - ema) >> shift
-static inline uint16_t EmaUpdate(uint16_t ema, uint8_t sample, uint8_t shift) {
-  int16_t delta = (int16_t)(((uint16_t)sample << ADAP_EMA_SHIFT) - ema);
-  return ema + (delta >> shift);
-}
-
-static inline uint8_t EmaGet(uint16_t ema) {
-  return (uint8_t)(ema >> ADAP_EMA_SHIFT);
-}
-
-static void AdapFloor_Reset(void) {
-  afloor.count = 0;
-  afloor.prevRssi = 0;
-  afloor.prevNoise = 255;
-  afloor.prevGlitch = 255;
-  afloor.rssiEma = 0;
-  afloor.noiseEma = 0;
-  afloor.glitchEma = 0;
-}
-
-static void AdapFloor_UpdateEma(uint8_t rssi, uint8_t noise, uint8_t glitch) {
-  if (afloor.count == 0) {
-    // первый сэмпл — инициализация
-    afloor.rssiEma = (uint16_t)rssi << ADAP_EMA_SHIFT;
-    afloor.noiseEma = (uint16_t)noise << ADAP_EMA_SHIFT;
-    afloor.glitchEma = (uint16_t)glitch << ADAP_EMA_SHIFT;
-  } else {
-    // при прогреве быстрее, потом медленнее
-    uint8_t sh =
-        (afloor.count < ADAP_MIN_SAMPLES) ? ADAP_WARMUP_SHIFT : ADAP_EMA_SHIFT;
-    afloor.rssiEma = EmaUpdate(afloor.rssiEma, rssi, sh);
-    afloor.noiseEma = EmaUpdate(afloor.noiseEma, noise, sh);
-    afloor.glitchEma = EmaUpdate(afloor.glitchEma, glitch, sh);
-  }
-  if (afloor.count < 255)
-    afloor.count++;
-}
-
-static bool AdaptiveSq_Check(uint8_t rssi, uint8_t noise, uint8_t glitch) {
-  // прогрев: набираем фон, пропускаем детекцию
-  if (afloor.count < ADAP_MIN_SAMPLES) {
-    AdapFloor_UpdateEma(rssi, noise, glitch);
-    afloor.prevRssi = rssi;
-    afloor.prevNoise = noise;
-    afloor.prevGlitch = glitch;
-    return false;
-  }
-
-  uint8_t floorR = EmaGet(afloor.rssiEma);
-  uint8_t floorN = EmaGet(afloor.noiseEma);
-  uint8_t floorG = EmaGet(afloor.glitchEma);
-
-  // 1) выше адаптивного пола?
-  bool above_floor = (rssi > floorR + FLOOR_MARGIN_RSSI) &&
-                     (noise + FLOOR_MARGIN_NOISE < floorN ||
-                      glitch + FLOOR_MARGIN_GLITCH < floorG);
-
-  // 2) резкий фронт относительно предыдущего шага?
-  int16_t dR = (int16_t)rssi - afloor.prevRssi;
-  int16_t dN = (int16_t)noise - afloor.prevNoise;
-  bool sharp_front = (dR > DELTA_RSSI_THRESH) && (dN < -DELTA_NOISE_THRESH);
-
-  afloor.prevRssi = rssi;
-  afloor.prevNoise = noise;
-  afloor.prevGlitch = glitch;
-
-  bool candidate = above_floor || sharp_front;
-
-  // EMA обновляем только фоном — кандидаты не загрязняют пол
-  if (!candidate)
-    AdapFloor_UpdateEma(rssi, noise, glitch);
-
-  return candidate;
+// Детекция сигнала по адаптивному порогу sqLevel
+static bool SimpleSq_Check(uint8_t rssi) {
+  if (!sqLevel && rssi)
+    sqLevel = rssi - 1; // инициализация при первом сигнале
+  return rssi >= sqLevel;
 }
 
 static bool IsSkippable(uint32_t f) {
@@ -223,13 +114,7 @@ static void ApplyBandSettings(void) {
     gLastActiveLoot = NULL;
 }
 
-// сброс только prev, чтобы дельта не сработала ложно на стыке диапазонов
-// EMA сохраняем — адаптируется сама
-static void AdapFloor_SoftReset(void) {
-  afloor.prevRssi = 255;
-  afloor.prevNoise = 0;
-  afloor.prevGlitch = 0;
-}
+
 
 static void BeginScanRange(uint32_t start, uint32_t end, uint16_t step) {
   scan.startF = start;
@@ -237,7 +122,6 @@ static void BeginScanRange(uint32_t start, uint32_t end, uint16_t step) {
   scan.currentF = start;
   scan.stepF = step;
   scan.cmdRangeActive = true;
-  AdapFloor_SoftReset();
   ChangeState(SCAN_STATE_TUNING);
 }
 
@@ -280,7 +164,6 @@ static void HandleEndOfRange(void) {
     ChangeState(SCAN_STATE_IDLE);
   } else {
     scan.currentF = scan.startF;
-    AdapFloor_SoftReset();
     ChangeState(SCAN_STATE_TUNING);
     SP_Begin();
   }
@@ -334,23 +217,25 @@ static void HandleStateTuning(void) {
 
   SP_AddPoint(&scan.measurement);
   if (scan.mode == SCAN_MODE_ANALYSER) {
-    // Analyser всегда идёт дальше — глушим VCO, чтобы не размазывало следующий
-    // замер
     Reg30_SetPllVco(false);
     scan.currentF += scan.stepF;
     return;
   }
 
-  if (AdaptiveSq_Check(scan.measurement.rssi, scan.measurement.noise,
-                       scan.measurement.glitch)) {
-    // Кандидат — VCO остаётся ON для CHECKING. Экономим write OFF + write ON,
-    // которые раньше делались подряд.
+  if (SimpleSq_Check(scan.measurement.rssi)) {
     ChangeState(SCAN_STATE_CHECKING);
   } else {
-    // Не кандидат — глушим VCO, чтобы не размазывало на следующий шаг
     Reg30_SetPllVco(false);
     scan.measurement.open = false;
     scan.currentF += scan.stepF;
+
+    // деградация порога раз в SQ_DECAY_STEPS шагов без сигнала
+    if (++sqStepsPassed > SQ_DECAY_STEPS) {
+      sqStepsPassed = 0;
+      if (!sqWasThinking && sqLevel > 0)
+        sqLevel--;
+      sqWasThinking = false;
+    }
   }
 }
 
@@ -358,6 +243,9 @@ static void HandleStateChecking(void) {
   if (ElapsedMs() < scan.checkDelayMs)
     return;
 
+  // двойная проверка: пауза 60 мс, потом решение
+  sqWasThinking = true;
+  SYSTICK_DelayMs(60);
   bool isOpen = BK4819_IsSquelchOpen();
   scan.isOpen = isOpen;
   scan.measurement.open = isOpen;
@@ -377,9 +265,8 @@ static void HandleStateChecking(void) {
 
     ChangeState(SCAN_STATE_LISTENING);
   } else {
-    // ложный кандидат — скормить в EMA, чтобы пол адаптировался к размазыванию
-    AdapFloor_UpdateEma(scan.measurement.rssi, scan.measurement.noise,
-                        scan.measurement.glitch);
+    // ложный кандидат — поднимаем порог
+    sqLevel++;
     scan.currentF += scan.stepF;
     ChangeState(SCAN_STATE_TUNING);
   }
@@ -507,7 +394,9 @@ void SCAN_Init(void) {
   scan.scanCycles = 0;
   scan.currentCps = 0;
   scan.radioTimer = Now();
-  AdapFloor_Reset();
+  sqLevel = 0;
+  sqStepsPassed = 0;
+  sqWasThinking = false;
 
   ApplyBandSettings();
   vfo->is_open = false;
