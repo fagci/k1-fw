@@ -139,50 +139,55 @@ uint32_t SP_X2F(uint8_t xi) {
 
 // ────────────────────────────────────────────────────────────────────
 
-#define _MIN(a, b) (((a) < (b)) ? (a) : (b))
-#define _MAX(a, b) (((a) > (b)) ? (a) : (b))
 
 void SP_AddPoint(const Measurement *msm) {
-    uint8_t xc      = SP_F2X(msm->f);
-    uint8_t next_xc = (msm->f + step >= range->end)   // >= вместо >
-                      ? (MAX_POINTS - 1) : SP_F2X(msm->f + step);
+    uint8_t xc = SP_F2X(msm->f);
+    bool isLast = (msm->f + step >= range->end);
 
+    // Voronoi-границы: вычисляем next_xc только если нужно
     int16_t ixs, ixe;
-    if (xc == 0) {                                     // по пикселю, не по частоте
+    if (xc == 0) {
         ixs = 0;
-        ixe = (int16_t)(xc + next_xc) / 2;            // Voronoi правая граница
-    } else if (msm->f + step >= range->end) {          // >= вместо >
-        ixs = (int16_t)(spPrevXc + xc) / 2 + 1;       // Voronoi левая граница
+        ixe = isLast ? (MAX_POINTS - 1)
+                     : (int16_t)(xc + SP_F2X(msm->f + step)) / 2;
+    } else if (isLast) {
+        ixs = (int16_t)(spPrevXc + xc) / 2 + 1;
         ixe = MAX_POINTS - 1;
     } else {
-        ixs = (int16_t)(spPrevXc + xc) / 2 + 1;       // Voronoi: floor(mid) + 1
-        ixe = (int16_t)(xc + next_xc) / 2;            // Voronoi: floor(mid)
+        ixs = (int16_t)(spPrevXc + xc) / 2 + 1;
+        ixe = (int16_t)(xc + SP_F2X(msm->f + step)) / 2;
     }
 
-    // в широкой полосе много измерений имеют одинаковый xc и Voronoi
-    // вырождается в [xc+1..xc] (пусто) — гарантируем минимум сам xc
+    // гарантируем минимум сам xc (Voronoi может выродиться в пустой диапазон)
     if (ixs > xc) ixs = xc;
     if (ixe < xc) ixe = xc;
+    if (ixs < 0)            ixs = 0;
+    if (ixe > MAX_POINTS-1) ixe = MAX_POINTS - 1;
 
-    ixs = _MAX(0,              ixs);
-    ixe = _MIN(MAX_POINTS - 1, ixe);
+    // инкрементный трекинг байта/бита вместо деления на каждой итерации
+    uint8_t xi   = (uint8_t)ixs;
+    uint8_t byte = xi >> 3;
+    uint8_t bit  = xi & 7;
+    uint8_t mask = 1 << bit;
 
-    for (uint8_t xi = (uint8_t)ixs; xi <= (uint8_t)ixe; ++xi) {
-        uint8_t byte = xi / 8, bit = xi % 8;
-        if ((visited[byte] & (1 << bit)) == 0) {
+    for (; xi <= (uint8_t)ixe; ++xi) {
+        if ((visited[byte] & mask) == 0) {
             rssiHistory[xi]   = msm->rssi;
             noiseHistory[xi]  = msm->noise;
             glitchHistory[xi] = msm->glitch;
-            visited[byte]    |= (1 << bit);
+            visited[byte]    |= mask;
         } else if (msm->rssi > rssiHistory[xi]) {
             rssiHistory[xi]   = msm->rssi;
             noiseHistory[xi]  = msm->noise;
             glitchHistory[xi] = msm->glitch;
         }
+        mask <<= 1;
+        if (!mask) { mask = 1; ++byte; }  // переход к следующему байту
     }
 
-    if ((uint8_t)ixe + 1u > filledPoints)
-        filledPoints = (uint8_t)ixe + 1;
+    uint8_t end = (uint8_t)ixe + 1;
+    if (end > filledPoints)
+        filledPoints = end;
 
     spPrevXc = xc;
 

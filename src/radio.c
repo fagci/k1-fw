@@ -1322,6 +1322,16 @@ static spf_ptr setParamForRadio[] = {
 };
 
 // Применение настроек
+// Параметры, которые не передаются в железо (только в ctx)
+#define SKIP_MASK \
+    ((1u << PARAM_STEP)             | (1u << PARAM_POWER)           | \
+     (1u << PARAM_TX_FREQUENCY)     | (1u << PARAM_TX_OFFSET)       | \
+     (1u << PARAM_TX_OFFSET_DIR)    | (1u << PARAM_TX_STATE)        | \
+     (1u << PARAM_TX_CODE)          | (1u << PARAM_RX_CODE)         | \
+     (1u << PARAM_RSSI)             | (1u << PARAM_NOISE)           | \
+     (1u << PARAM_GLITCH)           | (1u << PARAM_SNR)             | \
+     (1u << PARAM_PRECISE_F_CHANGE))
+
 void RADIO_ApplySettings(VFOContext *ctx) {
   if (ctx->dirty[PARAM_RADIO]) {
     LogC(LOG_C_BRIGHT_MAGENTA, "[RADIO] =%s",
@@ -1338,27 +1348,13 @@ void RADIO_ApplySettings(VFOContext *ctx) {
       ctx->radio_type == RADIO_BK4819;
 
   for (uint8_t p = 0; p < PARAM_COUNT; ++p) {
-    if (!ctx->dirty[p]) {
+    if (!ctx->dirty[p])
       continue;
-    }
 
-    switch (p) {
-    case PARAM_STEP:
-    case PARAM_POWER:
-    case PARAM_TX_FREQUENCY:
-    case PARAM_TX_OFFSET:
-    case PARAM_TX_OFFSET_DIR:
-    case PARAM_TX_STATE:
-    case PARAM_TX_CODE:
-    case PARAM_RX_CODE:
-    case PARAM_RSSI:
-    case PARAM_NOISE:
-    case PARAM_GLITCH:
-    case PARAM_SNR:
-    case PARAM_PRECISE_F_CHANGE:
-      ctx->dirty[p] = false;
+    ctx->dirty[p] = false;  // сбрасываем сразу — и для skip, и для handled
+
+    if (SKIP_MASK & (1u << p))
       continue;
-    }
 
     if (!setParamForRadio[ctx->radio_type](ctx, p)) {
 #ifdef DEBUG_PARAMS
@@ -1367,11 +1363,10 @@ void RADIO_ApplySettings(VFOContext *ctx) {
 #endif
       continue;
     }
-    ctx->dirty[p] = false;
 #ifdef DEBUG_PARAMS
     LogC(LOG_C_BRIGHT_WHITE, "[SET] %-12s -> %s", PARAM_NAMES(p),
          RADIO_GetParamValueString(ctx, p));
-#endif /* ifdef DEBUG_PARAMS */
+#endif
   }
 
   if (needSetupToneDetection) {
