@@ -313,14 +313,16 @@ uint16_t SP_GetNoiseFloor(void) {
     return 0;
   uint16_t temp[MAX_POINTS];
   memcpy(temp, rssiHistory, sizeof(uint16_t) * filledPoints);
-  for (uint8_t i = 0; i < filledPoints - 1; i++)
+
+  // нужен только p25 — частичная сортировка выбором до target
+  uint8_t target = filledPoints / 4;
+  for (uint8_t i = 0; i <= target; i++) {
+    uint8_t minIdx = i;
     for (uint8_t j = i + 1; j < filledPoints; j++)
-      if (temp[i] > temp[j]) {
-        uint16_t t = temp[i];
-        temp[i] = temp[j];
-        temp[j] = t;
-      }
-  return temp[filledPoints / 4];
+      if (temp[j] < temp[minIdx]) minIdx = j;
+    uint16_t t = temp[i]; temp[i] = temp[minIdx]; temp[minIdx] = t;
+  }
+  return temp[target];
 }
 
 uint16_t SP_GetRssiMax(void) { return Max(rssiHistory, filledPoints); }
@@ -386,20 +388,15 @@ void SP_AddGraphPoint(const Measurement *msm) {
 // ────────────────────────────────────────────────────────────────────
 
 static void shiftEx(uint16_t *history, uint16_t n, int16_t shift) {
-  if (shift == 0)
+  if (shift == 0 || (shift >= n) || (shift <= -(int16_t)n))
     return;
   if (shift > 0) {
-    while (shift-- > 0) {
-      for (int16_t i = n - 2; i >= 0; --i)
-        history[i + 1] = history[i];
-      history[0] = 0;
-    }
+    memmove(history + shift, history, (n - shift) * sizeof(uint16_t));
+    memset(history, 0, shift * sizeof(uint16_t));
   } else {
-    while (shift++ < 0) {
-      for (int16_t i = 0; i < n - 1; ++i)
-        history[i] = history[i + 1];
-      history[MAX_POINTS - 1] = 0;
-    }
+    uint16_t s = (uint16_t)(-shift);
+    memmove(history, history + s, (n - s) * sizeof(uint16_t));
+    memset(history + n - s, 0, s * sizeof(uint16_t));
   }
 }
 
