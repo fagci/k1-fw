@@ -373,7 +373,6 @@ void BK4819_SetAGC(bool fm, uint8_t gainIndex) {
   BK4819_WriteRegister(BK4819_REG_14, reg14);
 
   BK4819_WriteRegister(BK4819_REG_49, reg49);
-  // BK4819_WriteRegister(BK4819_REG_7B, 0x8420);
   BK4819_WriteRegister(BK4819_REG_7E, reg7E);
 }
 
@@ -538,7 +537,7 @@ void BK4819_TuneTo(uint32_t freq, bool precise) {
   uint16_t reg = BK4819_ReadRegister(BK4819_REG_30);
 
   if (precise) {
-    BK4819_WriteRegister(BK4819_REG_30, 0x200);
+    BK4819_WriteRegister(BK4819_REG_30, 0);
   } else {
     BK4819_WriteRegister(BK4819_REG_30,
                          reg & ~(BK4819_REG_30_ENABLE_VCO_CALIB));
@@ -586,10 +585,6 @@ void BK4819_SetIfMode(uint8_t mode) {
 }
 
 void BK4819_SetModulation(ModulationType type) {
-  /* if (gLastModulation == type) {
-    return;
-  } */
-
   if (type == MOD_BYP) {
     BK4819_EnterBypass();
   } else if (gLastModulation == MOD_BYP) {
@@ -1486,8 +1481,8 @@ void BK4819_Init(void) {
   BK4819_WriteRegister(BK4819_REG_00, 0x8000);
   BK4819_WriteRegister(BK4819_REG_00, 0x0000);
 
-  BK4819_WriteRegister(BK4819_REG_37, 0x1D00 | 0x801F);
-  //  BK4819_WriteRegister(BK4819_REG_36, 0x0022); // PA
+  BK4819_WriteRegister(BK4819_REG_37, 0x9D1F);
+  BK4819_WriteRegister(BK4819_REG_36, 0x0022); // PA
 
   BK4819_WriteRegister(BK4819_REG_10, 0x0318);
   BK4819_WriteRegister(BK4819_REG_11, 0x033A);
@@ -1533,14 +1528,15 @@ void BK4819_Init(void) {
 
   // RF_SetRxEqualizer(-3, +4);
 
-  BK4819_WriteRegister(BK4819_REG_7E, 0x3029); // #x302E tx dcc before alc
+  // BK4819_WriteRegister(BK4819_REG_7E, 0x3029); // #x302E tx dcc before alc
+  BK4819_WriteRegister(BK4819_REG_7E, 0x303E); // #x302E tx dcc before alc
   BK4819_WriteRegister(BK4819_REG_46, 0x600A);
   BK4819_WriteRegister(0x4A, 0x5430);
 
   gGpioOutState = 0x9000;
 
   BK4819_WriteRegister(BK4819_REG_33, gGpioOutState);
-  // BK4819_WriteRegister(BK4819_REG_3F, 0);
+  BK4819_WriteRegister(BK4819_REG_3F, 0);
 
   BK4819_SetupPowerAmplifier(0, 0);
   BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
@@ -1549,8 +1545,6 @@ void BK4819_Init(void) {
   BK4819_WriteRegister(BK4819_REG_43, 0x3028); // BW
   BK4819_SetModulation(MOD_FM);
   BK4819_SetAGC(true, 1);
-
-  BK4819_WriteRegister(BK4819_REG_3F, 0);
 
   isInitialized = true;
 }
