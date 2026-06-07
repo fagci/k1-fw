@@ -383,11 +383,10 @@ void BK4819_SetAGC(bool fm, uint8_t gainIndex) {
 #define XTAL12M8 3
 #define XTAL25M6 4
 #define XTAL38M4 5
-#define DEVIATION                                                              \
-  0x4F0 // 0~0xFFF, 0x5D0 for 13M/12.8M, 0x53A for 19.2M 0x3D0 for 38.4M
 
 void RF_SetXtal(uint8_t mode) {
 #define REG_40 0x3000
+  const uint16_t DEVIATION = gSettings.deviation * 10;
   switch (mode) {
   case XTAL26M:
     BK4819_WriteRegister(0x40, REG_40 | DEVIATION);
@@ -998,8 +997,8 @@ void BK4819_MuteMic(void) {
 }
 
 void BK4819_RX_TurnOn(void) {
-  BK4819_WriteRegister(BK4819_REG_37, 0x9F1F);
-  // BK4819_Idle();
+  BK4819_WriteRegister(BK4819_REG_37, 0x1D00 | 0x801F | 1 << 9);
+  BK4819_Idle();
   BK4819_WriteRegister(BK4819_REG_30, 0xBFF1);
 }
 
@@ -1487,8 +1486,8 @@ void BK4819_Init(void) {
   BK4819_WriteRegister(BK4819_REG_00, 0x8000);
   BK4819_WriteRegister(BK4819_REG_00, 0x0000);
 
-  BK4819_WriteRegister(BK4819_REG_37, 0x9D1F & ~(1 << 10)); // LDO, XTAL EN
-  BK4819_WriteRegister(BK4819_REG_36, 0x0022);              // PA
+  BK4819_WriteRegister(BK4819_REG_37, 0x1D00 | 0x801F);
+  //  BK4819_WriteRegister(BK4819_REG_36, 0x0022); // PA
 
   BK4819_WriteRegister(BK4819_REG_10, 0x0318);
   BK4819_WriteRegister(BK4819_REG_11, 0x033A);
@@ -1496,7 +1495,6 @@ void BK4819_Init(void) {
 
   BK4819_WriteRegister(BK4819_REG_7B, 0x73DC);
 
-  // BK4819_WriteRegister(BK4819_REG_48, 0x33A8);
   // s0v4
   BK4819_WriteRegister(
       BK4819_REG_48,
@@ -1504,14 +1502,7 @@ void BK4819_Init(void) {
           (0 << 10) | // AF Rx Gain-1 00:0dB 01:-6dB 10:-12dB 11:-18dB
           (58 << 4) | // AF Rx Gain-2 AF RX Gain2 (-26 dB ~ 5.5 dB): 0x00: Mute
           (8 << 0));  // AF DAC Gain (after Gain-1 and Gain-2) 1111 - max
-  /* BK4819_WriteRegister(BK4819_REG_48,
-                       (0b1100 << 10)        // ?
-                           | (0b111111 << 4) // GAIN2
-                           | (0b0011 << 0)   // DAC GAIN AFTER G1 G2
-  ); */
 
-  // BK4819_WriteRegister(0x40, 0x3516);
-  // BK4819_WriteRegister(0x40, 0x34F0);
   RF_SetXtal(XTAL26M);
 
   const uint8_t dtmf_coeffs[] = {111, 107, 103, 98, 80,  71,  58,  44,
@@ -1522,8 +1513,7 @@ void BK4819_Init(void) {
   BK4819_WriteRegister(0x1C, 0x07C0);
   BK4819_WriteRegister(0x1D, 0xE555);
   BK4819_WriteRegister(0x1E, 0x4C58);
-  BK4819_WriteRegister(0x1F,
-                       0xC65A & ~(0b1111 << 12) | (3 << 12)); // PLL CP 0:3
+  BK4819_WriteRegister(0x1F, 0xC65A);
 
   BK4819_WriteRegister(BK4819_REG_3E, 0x94C6);
 
@@ -1558,14 +1548,9 @@ void BK4819_Init(void) {
   // default settings
   BK4819_WriteRegister(BK4819_REG_43, 0x3028); // BW
   BK4819_SetModulation(MOD_FM);
-  BK4819_SetAGC(true, 0);
+  BK4819_SetAGC(true, 1);
 
-  BK4819_WriteRegister(0x40, (BK4819_ReadRegister(0x40) & ~(0x7FF)) |
-                                 (gSettings.deviation * 10) | (1 << 12));
-
-  // Enable squelch interrupts by default
-  BK4819_WriteRegister(BK4819_REG_3F, BK4819_REG_3F_SQUELCH_LOST |
-                                          BK4819_REG_3F_SQUELCH_FOUND);
+  BK4819_WriteRegister(BK4819_REG_3F, 0);
 
   isInitialized = true;
 }
