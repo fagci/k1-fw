@@ -71,7 +71,7 @@ static bool IsSqOpenGated(void) {
 }
 
 // Детекция сигнала по адаптивному порогу sqLevel
-static bool SimpleSq_Check(uint8_t rssi) {
+static bool SimpleSq_Check(uint16_t rssi) {
   if (!sqLevel && rssi)
     sqLevel = rssi - 1; // инициализация при первом сигнале
   return rssi >= sqLevel;
@@ -113,8 +113,6 @@ static void ApplyBandSettings(void) {
   if (gLastActiveLoot && !BANDS_InRange(gLastActiveLoot->f, &gCurrentBand))
     gLastActiveLoot = NULL;
 }
-
-
 
 static void BeginScanRange(uint32_t start, uint32_t end, uint16_t step) {
   scan.startF = start;

@@ -924,8 +924,10 @@ static bool sq_was_open; // предыдущее решение — для ги�
 
 static void measure(void) {
   msm->rssi = RADIO_GetRSSI(ctx);
-  // msm->noise = RADIO_GetNoise(ctx);
-  // msm->glitch = RADIO_GetGlitch(ctx);
+  msm->noise = RADIO_GetNoise(ctx);
+  if (!glitchDisabled()) {
+    msm->glitch = RADIO_GetGlitch(ctx);
+  }
 
   if (listen) {
     msm->open = true;

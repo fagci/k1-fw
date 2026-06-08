@@ -24,13 +24,15 @@ static Band *range;
 static uint16_t step;
 
 // fallback-границы в сырых единицах RSSI (≈ -120..-60 dBm)
-#define SP_RSSI_MIN 80
+#define SP_RSSI_MIN 30
 #define SP_RSSI_MAX 200
 
 // RSSI → высота бара в пикселях [0..SPECTRUM_H], прямой линейный маппинг
 static uint8_t rssi2Y(uint16_t rssi, VMinMax v) {
-  if (rssi <= v.vMin) return 0;
-  if (rssi >= v.vMax) return SPECTRUM_H;
+  if (rssi <= v.vMin)
+    return 0;
+  if (rssi >= v.vMax)
+    return SPECTRUM_H;
   return (uint8_t)((uint32_t)(rssi - v.vMin) * SPECTRUM_H / (v.vMax - v.vMin));
 }
 
@@ -73,12 +75,15 @@ static void computeAutoLevel(void) {
 
   uint16_t rMin = rssiHistory[0], rMax = rssiHistory[0];
   for (uint8_t i = 1; i < filledPoints; i++) {
-    if (rssiHistory[i] < rMin) rMin = rssiHistory[i];
-    if (rssiHistory[i] > rMax) rMax = rssiHistory[i];
+    if (rssiHistory[i] < rMin)
+      rMin = rssiHistory[i];
+    if (rssiHistory[i] > rMax)
+      rMax = rssiHistory[i];
   }
 
   uint16_t span = rMax > rMin ? rMax - rMin : 0;
-  if (span < 40) span = 40;
+  if (span < 40)
+    span = 40;
 
   // floor на 2px: vMin = rMin - 2*span/SPECTRUM_H
   uint16_t margin = 2 * span / SPECTRUM_H;
@@ -139,69 +144,72 @@ uint32_t SP_X2F(uint8_t xi) {
 
 // ────────────────────────────────────────────────────────────────────
 
-
 void SP_AddPoint(const Measurement *msm) {
-    uint8_t xc = SP_F2X(msm->f);
-    bool isLast = (msm->f + step >= range->end);
+  uint8_t xc = SP_F2X(msm->f);
+  bool isLast = (msm->f + step >= range->end);
 
-    // Voronoi-границы: вычисляем next_xc только если нужно
-    int16_t ixs, ixe;
-    if (xc == 0) {
-        ixs = 0;
-        ixe = isLast ? (MAX_POINTS - 1)
-                     : (int16_t)(xc + SP_F2X(msm->f + step)) / 2;
-    } else if (isLast) {
-        ixs = (int16_t)(spPrevXc + xc) / 2 + 1;
-        ixe = MAX_POINTS - 1;
-    } else {
-        ixs = (int16_t)(spPrevXc + xc) / 2 + 1;
-        ixe = (int16_t)(xc + SP_F2X(msm->f + step)) / 2;
+  // Voronoi-границы: вычисляем next_xc только если нужно
+  int16_t ixs, ixe;
+  if (xc == 0) {
+    ixs = 0;
+    ixe = isLast ? (MAX_POINTS - 1) : (int16_t)(xc + SP_F2X(msm->f + step)) / 2;
+  } else if (isLast) {
+    ixs = (int16_t)(spPrevXc + xc) / 2 + 1;
+    ixe = MAX_POINTS - 1;
+  } else {
+    ixs = (int16_t)(spPrevXc + xc) / 2 + 1;
+    ixe = (int16_t)(xc + SP_F2X(msm->f + step)) / 2;
+  }
+
+  // гарантируем минимум сам xc (Voronoi может выродиться в пустой диапазон)
+  if (ixs > xc)
+    ixs = xc;
+  if (ixe < xc)
+    ixe = xc;
+  if (ixs < 0)
+    ixs = 0;
+  if (ixe > MAX_POINTS - 1)
+    ixe = MAX_POINTS - 1;
+
+  // инкрементный трекинг байта/бита вместо деления на каждой итерации
+  uint8_t xi = (uint8_t)ixs;
+  uint8_t byte = xi >> 3;
+  uint8_t bit = xi & 7;
+  uint8_t mask = 1 << bit;
+
+  for (; xi <= (uint8_t)ixe; ++xi) {
+    if ((visited[byte] & mask) == 0) {
+      rssiHistory[xi] = msm->rssi;
+      noiseHistory[xi] = msm->noise;
+      glitchHistory[xi] = msm->glitch;
+      visited[byte] |= mask;
+    } else if (msm->rssi > rssiHistory[xi]) {
+      rssiHistory[xi] = msm->rssi;
+      noiseHistory[xi] = msm->noise;
+      glitchHistory[xi] = msm->glitch;
     }
+    mask <<= 1;
+    if (!mask) {
+      mask = 1;
+      ++byte;
+    } // переход к следующему байту
+  }
 
-    // гарантируем минимум сам xc (Voronoi может выродиться в пустой диапазон)
-    if (ixs > xc) ixs = xc;
-    if (ixe < xc) ixe = xc;
-    if (ixs < 0)            ixs = 0;
-    if (ixe > MAX_POINTS-1) ixe = MAX_POINTS - 1;
+  uint8_t end = (uint8_t)ixe + 1;
+  if (end > filledPoints)
+    filledPoints = end;
 
-    // инкрементный трекинг байта/бита вместо деления на каждой итерации
-    uint8_t xi   = (uint8_t)ixs;
-    uint8_t byte = xi >> 3;
-    uint8_t bit  = xi & 7;
-    uint8_t mask = 1 << bit;
+  spPrevXc = xc;
 
-    for (; xi <= (uint8_t)ixe; ++xi) {
-        if ((visited[byte] & mask) == 0) {
-            rssiHistory[xi]   = msm->rssi;
-            noiseHistory[xi]  = msm->noise;
-            glitchHistory[xi] = msm->glitch;
-            visited[byte]    |= mask;
-        } else if (msm->rssi > rssiHistory[xi]) {
-            rssiHistory[xi]   = msm->rssi;
-            noiseHistory[xi]  = msm->noise;
-            glitchHistory[xi] = msm->glitch;
-        }
-        mask <<= 1;
-        if (!mask) { mask = 1; ++byte; }  // переход к следующему байту
-    }
-
-    uint8_t end = (uint8_t)ixe + 1;
-    if (end > filledPoints)
-        filledPoints = end;
-
-    spPrevXc = xc;
-
-    if (msm->rssi > spPeakRssi) {
-        spPeakRssi = msm->rssi;
-        spPeakF    = msm->f;
-    }
+  if (msm->rssi > spPeakRssi) {
+    spPeakRssi = msm->rssi;
+    spPeakF = msm->f;
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────
 
-VMinMax SP_GetMinMax(void) {
-  return (VMinMax){.vMin = SP_RSSI_MIN, .vMax = SP_RSSI_MAX};
-}
+VMinMax SP_GetMinMax(void) { return autoLevel; }
 
 VMinMax SP_GetGraphMinMax(void) {
   switch (graphMeasurement) {
@@ -294,7 +302,7 @@ void SP_RenderLine(uint16_t value, VMinMax v) {
   if (graphMeasurement == GRAPH_RSSI) {
     yVal = rssi2Y(value, v);
   } else {
-    VMinMax rv = SP_GetGraphMinMax();  // те же границы что у SP_Render для N/G
+    VMinMax rv = SP_GetGraphMinMax(); // те же границы что у SP_Render для N/G
     yVal = ConvertDomain(value, rv.vMin, rv.vMax, 0, SPECTRUM_H);
   }
   DrawHLine(0, S_BOTTOM - yVal, filledPoints, C_INVERT);
@@ -319,8 +327,11 @@ uint16_t SP_GetNoiseFloor(void) {
   for (uint8_t i = 0; i <= target; i++) {
     uint8_t minIdx = i;
     for (uint8_t j = i + 1; j < filledPoints; j++)
-      if (temp[j] < temp[minIdx]) minIdx = j;
-    uint16_t t = temp[i]; temp[i] = temp[minIdx]; temp[minIdx] = t;
+      if (temp[j] < temp[minIdx])
+        minIdx = j;
+    uint16_t t = temp[i];
+    temp[i] = temp[minIdx];
+    temp[minIdx] = t;
   }
   return temp[target];
 }
