@@ -88,7 +88,6 @@ DEFINES  := -DPRINTF_INCLUDE_CONFIG_H \
             -DLFS_NO_ASSERT \
             -DLFS_NO_DEBUG \
             -DLFS_NO_WARN \
-            -DLFS_FILE_MAX=64 \
             -DLFS_NO_ERROR
 
 # Include paths
