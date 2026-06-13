@@ -27,17 +27,9 @@ OBJS := $(OBJ_DIR)/start.o \
         $(OBJ_DIR)/init.o \
         $(OBJ_DIR)/external/printf/printf.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_adc.o \
-        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_comp.o \
-        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_crc.o \
-        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_dac.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_dma.o \
-        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_exti.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_gpio.o \
-        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_i2c.o \
-        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_lptim.o \
-        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_pwr.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_rcc.o \
-        $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_rtc.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_spi.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_tim.o \
         $(OBJ_DIR)/external/PY32F071_HAL_Driver/Src/py32f071_ll_usart.o \
@@ -129,6 +121,10 @@ LDFLAGS  := $(COMMON_FLAGS) \
 # =============================================================================
 # Build Configuration
 # =============================================================================
+# Parallel build by default (override with `make -j1` for serial)
+JOBS ?= $(shell nproc 2>/dev/null || echo 4)
+MAKEFLAGS += -j$(JOBS)
+
 # По умолчанию release сборка
 BUILD_TYPE ?= release
 
