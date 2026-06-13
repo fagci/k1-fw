@@ -423,6 +423,33 @@ static void exitStill(void) {
   refreshSpectrumH();
 }
 
+// Перейти на частоту и сообщить радиомодулю
+static void tuneToF(uint32_t f) {
+  targetF = f;
+  msm->f = f;
+  scanF = f;
+  RADIO_SetParam(ctx, PARAM_FREQUENCY, f, false);
+  RADIO_ApplySettings(ctx);
+}
+
+// Войти в still+listen на заданной частоте
+static void enterStill(uint32_t f) {
+  still = true;
+  listen = true;
+  tuneToF(f);
+  refreshSpectrumH();
+}
+
+// Подхватить range из вершины стека и переинициализировать спектр
+static void applyRangeFromPeek(void) {
+  range = *BANDS_RangePeek();
+  msm->f = range.start;
+  scanF = range.start;
+  SP_Init(&range);
+  CUR_Reset();
+  onRangeChanged();
+}
+
 static void lockToPeak(void) {
   uint32_t f = SP_GetPeakF();
   if (!f)
@@ -530,27 +557,14 @@ static bool sqTunerKey(KEY_Code_t key, Key_State_t state) {
 static bool stillModeKey(KEY_Code_t key, Key_State_t state) {
   switch (key) {
   case KEY_UP:
-  case KEY_DOWN: {
-    uint32_t step = StepFrequencyTable[RADIO_GetParam(ctx, PARAM_STEP)];
-    int32_t delta = (key == KEY_UP) ? (int32_t)step : -(int32_t)step;
-    if (gSettings.invertButtons)
-      delta = -delta;
-    targetF += delta;
-    msm->f = targetF;
-    scanF = targetF;
-    RADIO_SetParam(ctx, PARAM_FREQUENCY, targetF, false);
-    RADIO_ApplySettings(ctx);
-    return true;
-  }
+  case KEY_DOWN:
   case KEY_4:
   case KEY_6: {
-    uint32_t step = StepFrequencyTable[RADIO_GetParam(ctx, PARAM_STEP)];
-    int32_t delta = (key == KEY_4) ? (int32_t)step : -(int32_t)step;
-    targetF += delta;
-    msm->f = targetF;
-    scanF = targetF;
-    RADIO_SetParam(ctx, PARAM_FREQUENCY, targetF, false);
-    RADIO_ApplySettings(ctx);
+    int32_t step = (int32_t)StepFrequencyTable[RADIO_GetParam(ctx, PARAM_STEP)];
+    bool up = (key == KEY_UP || key == KEY_4);
+    if ((key == KEY_UP || key == KEY_DOWN) && gSettings.invertButtons)
+      up = !up;
+    tuneToF(targetF + (up ? step : -step));
     return true;
   }
   case KEY_SIDE1:
@@ -593,22 +607,21 @@ static bool analyzerModeKey(KEY_Code_t key, Key_State_t state) {
     if (!moved) {
       bool up = (key == KEY_UP) ^ gSettings.invertButtons;
       uint32_t oldStart = range.start;
+      uint32_t width = step * LCD_WIDTH; // range.step == текущий PARAM_STEP
 
       if (up) {
         range.start += step;
         range.end += step;
+      } else if (range.start >= step) {
+        range.start -= step;
+        range.end -= step;
       } else {
-        if (range.start >= step) {
-          range.start -= step;
-          range.end -= step;
-        } else {
-          range.start = 0;
-          range.end = StepFrequencyTable[range.step] * LCD_WIDTH;
-        }
+        range.start = 0;
+        range.end = width;
       }
       if (range.end > BK4819_F_MAX) {
         range.end = BK4819_F_MAX;
-        range.start = range.end - StepFrequencyTable[range.step] * LCD_WIDTH;
+        range.start = range.end - width;
       }
 
       // Инкрементальный shift применим только если сдвинулись ровно на ±step.
@@ -623,8 +636,9 @@ static bool analyzerModeKey(KEY_Code_t key, Key_State_t state) {
         SP_Init(&range);
       }
 
-      BANDS_RangePeek()->start = range.start;
-      BANDS_RangePeek()->end = range.end;
+      Band *p = BANDS_RangePeek();
+      p->start = range.start;
+      p->end = range.end;
       SP_Begin();
       onRangeChanged();
       gRedrawScreen = true;
@@ -641,24 +655,14 @@ static bool analyzerModeKey(KEY_Code_t key, Key_State_t state) {
     Band zoomed = CUR_GetRange(BANDS_RangePeek(), step);
     zoomed.step = RADIO_GetParam(ctx, PARAM_STEP);
     BANDS_RangePush(zoomed);
-    range = *BANDS_RangePeek();
-    msm->f = range.start;
-    scanF = range.start;
-    SP_Init(&range);
-    CUR_Reset();
-    onRangeChanged();
+    applyRangeFromPeek();
     return true;
   }
 
   case KEY_8: // zoom out
     BANDS_RangePop();
-    range = *BANDS_RangePeek();
-    RADIO_SetParam(ctx, PARAM_STEP, range.step, true);
-    msm->f = range.start;
-    scanF = range.start;
-    SP_Init(&range);
-    CUR_Reset();
-    onRangeChanged();
+    RADIO_SetParam(ctx, PARAM_STEP, BANDS_RangePeek()->step, true);
+    applyRangeFromPeek();
     return true;
 
   case KEY_3:
@@ -671,29 +675,14 @@ static bool analyzerModeKey(KEY_Code_t key, Key_State_t state) {
 
   case KEY_4:
     if (state == KEY_LONG_PRESSED) {
-      if (gLastActiveLoot) {
-        still = true;
-        listen = true;
-        targetF = msm->f = gLastActiveLoot->f;
-        scanF = targetF;
-        RADIO_SetParam(ctx, PARAM_FREQUENCY, targetF, false);
-        RADIO_ApplySettings(ctx);
-        refreshSpectrumH();
-      }
+      if (gLastActiveLoot)
+        enterStill(gLastActiveLoot->f);
     } else if (state == KEY_RELEASED) {
       if (!still) {
-        // вход в still
-        still = true;
-        listen = true;
         // Если шумодав открыт — встаём на активную частоту, не на курсор
         // сканера
-        targetF =
-            (gLastActiveLoot && vfo->is_open) ? gLastActiveLoot->f : msm->f;
-        msm->f = targetF;
-        scanF = targetF;
-        RADIO_SetParam(ctx, PARAM_FREQUENCY, targetF, false);
-        RADIO_ApplySettings(ctx);
-        refreshSpectrumH();
+        enterStill((gLastActiveLoot && vfo->is_open) ? gLastActiveLoot->f
+                                                     : msm->f);
       } else {
         // выход: сбросить still, listen и monitor
         exitStill();

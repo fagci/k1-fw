@@ -66,14 +66,11 @@ CFLAGS   := $(COMMON_FLAGS) $(OPTIMIZATION) \
             -Wno-incompatible-pointer-types \
             -Wno-strict-aliasing \
             -Wno-unused-function -Wno-unused-variable \
-            -fshort-enums \
+            -fno-builtin -fshort-enums \
             -Wno-unused-parameter \
             -fno-delete-null-pointer-checks \
             -fsingle-precision-constant \
             -finline-functions-called-once \
-            -fno-unwind-tables -fno-asynchronous-unwind-tables \
-            -fno-math-errno -fno-stack-protector \
-            -fmerge-all-constants -fconserve-stack \
             -MMD -MP
 
 # Debug/Release specific flags
