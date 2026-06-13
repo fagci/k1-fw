@@ -96,6 +96,7 @@ DEFINES  := -DPRINTF_INCLUDE_CONFIG_H \
             -DLFS_NO_ASSERT \
             -DLFS_NO_DEBUG \
             -DLFS_NO_WARN \
+            -DLFS_FILE_MAX=64 \
             -DLFS_NO_ERROR
 
 # Include paths
@@ -165,7 +166,7 @@ $(TARGET): $(OBJS) | $(BIN_DIR)
 	$(LD) $(LDFLAGS) $^ -o $@
 	@echo ""
 	$(SIZE) $@
-	arm-none-eabi-nm --size-sort -r $(BIN_DIR)/$(PROJECT_NAME) | head -20
+	arm-none-eabi-nm -S --size-sort -r --radix=d $(BIN_DIR)/$(PROJECT_NAME) | head -30
 	@echo ""
 
 # Компиляция C файлов

@@ -28,7 +28,6 @@ typedef struct {
 // Функции инициализации
 int fs_init();
 bool lfs_file_exists(const char *path);
-uint32_t fs_get_free_space(void);
 
 extern lfs_storage_t gStorage;
 extern lfs_t gLfs;

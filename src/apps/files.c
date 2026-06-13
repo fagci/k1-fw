@@ -10,11 +10,12 @@
 #include "files.h"
 #include <string.h>
 
-// Increased MAX_NAME_LEN from 12 to 16 to fit filenames like "Settings.set" (12 chars + null)
-// Memory: 12 × 24 = 288 bytes (reduced from 480)
-#define MAX_FILES     12
-#define MAX_PATH_LEN  64
-#define MAX_NAME_LEN  16   // 15 символов + '\0'; достаточно для имён типа "Settings.set"
+// Increased MAX_NAME_LEN from 12 to 16 to fit filenames like "Settings.set" (12
+// chars + null) Memory: 12 × 24 = 288 bytes (reduced from 480)
+#define MAX_FILES 12
+#define MAX_PATH_LEN 64
+#define MAX_NAME_LEN                                                           \
+  16 // 15 символов + '\0'; достаточно для имён типа "Settings.set"
 
 typedef enum {
   FILE_TYPE_FILE = 0,
@@ -29,9 +30,9 @@ typedef enum {
 
 typedef struct {
   char name[MAX_NAME_LEN];
-  uint32_t size;            // для папок = 0
-  uint8_t type;             // FileType; uint8_t вместо int экономит выравнивание
-} FileEntry;                // sizeof = 16+4+1+pad(3) = 24 байт
+  uint32_t size; // для папок = 0
+  uint8_t type; // FileType; uint8_t вместо int экономит выравнивание
+} FileEntry; // sizeof = 16+4+1+pad(3) = 24 байт
 
 static FileEntry gFilesList[MAX_FILES];
 static uint16_t gFilesCount = 0;
@@ -42,14 +43,10 @@ static bool showingScreenshot;
 static char screenshotPath[32];
 
 static const Symbol fileTypeIcons[] = {
-    [FILE_TYPE_FILE]   = SYM_FILE,
-    [FILE_TYPE_FOLDER] = SYM_FOLDER,
-    [FILE_TYPE_BACK]   = SYM_MISC2,
-    [FILE_TYPE_VFO]    = SYM_VFO,
-    [FILE_TYPE_BAND]   = SYM_BAND,
-    [FILE_TYPE_CH]     = SYM_CH,
-    [FILE_TYPE_SET]    = SYM_SETTING,
-    [FILE_TYPE_SL]     = SYM_SCAN,
+    [FILE_TYPE_FILE] = SYM_FILE,   [FILE_TYPE_FOLDER] = SYM_FOLDER,
+    [FILE_TYPE_BACK] = SYM_MISC2,  [FILE_TYPE_VFO] = SYM_VFO,
+    [FILE_TYPE_BAND] = SYM_BAND,   [FILE_TYPE_CH] = SYM_CH,
+    [FILE_TYPE_SET] = SYM_SETTING, [FILE_TYPE_SL] = SYM_SCAN,
 };
 
 static void loadDirectory(const char *path);
@@ -60,9 +57,9 @@ static void formatSize(uint32_t size, char *buffer, uint8_t bufferSize);
 
 static Menu filesMenu = {
     .render_item = renderItem,
-    .itemHeight  = MENU_ITEM_H,
-    .action      = action,
-    .num_items   = 0,
+    .itemHeight = MENU_ITEM_H,
+    .action = action,
+    .num_items = 0,
 };
 
 static void formatSize(uint32_t size, char *buffer, uint8_t bufferSize) {
@@ -80,7 +77,8 @@ static void deleteItem(const char *name, FileType type) {
   char fullPath[MAX_PATH_LEN];
 
   // Construct path without leading slash for root-level files
-  // to match how storage.c creates files (e.g., "Settings.set" not "/Settings.set")
+  // to match how storage.c creates files (e.g., "Settings.set" not
+  // "/Settings.set")
   if (strcmp(gCurrentPath, "/") == 0) {
     snprintf(fullPath, sizeof(fullPath), "%s", name);
   } else {
@@ -143,12 +141,18 @@ static void loadDirectory(const char *path) {
       gFilesList[gFilesCount].size = 0;
     } else {
       const char *ext = getFileExtension(gFilesList[gFilesCount].name);
-      if      (strcmp(ext, "vfo") == 0) gFilesList[gFilesCount].type = FILE_TYPE_VFO;
-      else if (strcmp(ext, "bnd") == 0) gFilesList[gFilesCount].type = FILE_TYPE_BAND;
-      else if (strcmp(ext, "ch")  == 0) gFilesList[gFilesCount].type = FILE_TYPE_CH;
-      else if (strcmp(ext, "set") == 0) gFilesList[gFilesCount].type = FILE_TYPE_SET;
-      else if (strcmp(ext, "sl")  == 0) gFilesList[gFilesCount].type = FILE_TYPE_SL;
-      else                               gFilesList[gFilesCount].type = FILE_TYPE_FILE;
+      if (strcmp(ext, "vfo") == 0)
+        gFilesList[gFilesCount].type = FILE_TYPE_VFO;
+      else if (strcmp(ext, "bnd") == 0)
+        gFilesList[gFilesCount].type = FILE_TYPE_BAND;
+      else if (strcmp(ext, "ch") == 0)
+        gFilesList[gFilesCount].type = FILE_TYPE_CH;
+      else if (strcmp(ext, "set") == 0)
+        gFilesList[gFilesCount].type = FILE_TYPE_SET;
+      else if (strcmp(ext, "sl") == 0)
+        gFilesList[gFilesCount].type = FILE_TYPE_SL;
+      else
+        gFilesList[gFilesCount].type = FILE_TYPE_FILE;
       gFilesList[gFilesCount].size = info.size;
     }
     gFilesCount++;
@@ -168,8 +172,8 @@ static void loadDirectory(const char *path) {
           swap = true;
       }
       if (swap) {
-        FileEntry temp  = gFilesList[j];
-        gFilesList[j]   = gFilesList[j + 1];
+        FileEntry temp = gFilesList[j];
+        gFilesList[j] = gFilesList[j + 1];
         gFilesList[j + 1] = temp;
       }
     }
@@ -252,8 +256,8 @@ static void navigateTo(const char *name) {
     }
     if (strcmp(ext, "bmp") == 0) {
       showingScreenshot = true;
-      snprintf(screenshotPath, sizeof(screenshotPath), "%s/%s",
-               gCurrentPath, name);
+      snprintf(screenshotPath, sizeof(screenshotPath), "%s/%s", gCurrentPath,
+               name);
     }
   }
 }
@@ -352,14 +356,6 @@ bool FILES_key(KEY_Code_t key, Key_State_t state) {
       APPS_exit();
       return true;
 
-    case KEY_F: {
-      uint32_t freeSpace = fs_get_free_space();
-      char freeStr[16];
-      formatSize(freeSpace, freeStr, sizeof(freeStr));
-      STATUSLINE_SetText("Free: %s", freeStr);
-      return true;
-    }
-
     default:
       break;
     }
@@ -381,4 +377,3 @@ void FILES_render() {
   MENU_Render();
   PrintMediumEx(2, 2, POS_L, C_FILL, "%s", gCurrentPath);
 }
-

@@ -1,5 +1,4 @@
 #include "lfs.h"
-#include "../external/printf/printf.h"
 #include <string.h>
 
 // Глобальные переменные
@@ -67,19 +66,12 @@ int lfs_storage_init(lfs_storage_t *storage) {
 }
 
 int fs_format(lfs_storage_t *storage) {
-  int err = lfs_format(&gLfs, &storage->config);
-  if (err) {
-    printf("Format error: %d\n", err);
-    return err;
-  }
-  printf("LittleFS formatted successfully\n");
-  return 0;
+  return lfs_format(&gLfs, &storage->config);
 }
 
 int fs_mount(lfs_storage_t *storage, lfs_t *lfs) {
   int err = lfs_mount(lfs, &storage->config);
   if (err) {
-    printf("Mount error: %d, trying to format...\n", err);
     err = lfs_format(lfs, &storage->config);
     if (err)
       return err;
@@ -88,37 +80,9 @@ int fs_mount(lfs_storage_t *storage, lfs_t *lfs) {
   return err;
 }
 
-// === HIGH-LEVEL API (аналогичный FAT API) ===
-
 int fs_init(void) {
-  printf("[LFS] Initializing LittleFS\n");
-
-  // Инициализируем хранилище
   lfs_storage_init(&gStorage);
-
-  // Монтируем файловую систему
-  int err = fs_mount(&gStorage, &gLfs);
-  if (err) {
-    printf("[LFS] Failed to mount: %d\n", err);
-    return -1;
-  }
-
-  printf("[LFS] Mounted successfully\n");
-
-  return 0;
-}
-
-uint32_t fs_get_free_space(void) {
-  lfs_ssize_t free = lfs_fs_size(&gLfs);
-  if (free < 0)
-    return 0;
-
-  // Вычисляем свободное пространство
-  uint32_t total_blocks = LFS_BLOCK_COUNT;
-  uint32_t used_blocks = free;
-  uint32_t free_blocks = total_blocks - used_blocks;
-
-  return free_blocks * LFS_BLOCK_SIZE;
+  return fs_mount(&gStorage, &gLfs);
 }
 
 bool lfs_file_exists(const char *path) {
