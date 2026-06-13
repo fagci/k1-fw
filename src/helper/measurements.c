@@ -8,7 +8,7 @@
 static const char *SQ_FILE_VHF = "/vhf.sq";
 static const char *SQ_FILE_UHF = "/uhf.sq";
 
-long long Clamp(long long v, long long min, long long max) {
+int32_t Clamp(int32_t v, int32_t min, int32_t max) {
   return v <= min ? min : (v >= max ? max : v);
 }
 
