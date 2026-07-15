@@ -1,6 +1,5 @@
 #include "scan.h"
 #include "../driver/bk4829.h"
-#include "../driver/st7565.h"
 #include "../driver/systick.h"
 #include "../driver/uart.h"
 #include "../helper/lootlist.h"
@@ -17,14 +16,6 @@
 
 // Адаптивный порог: снижается раз в N шагов без сигнала
 #define SQ_DECAY_STEPS 64
-
-// Даже с DIV128 на LCD SPI (см. st7565.c) блит наводит помеху на ближайший
-// замер — редких неизбежных редравов (конец свипа, реальный кандидат) не
-// избежать, поэтому просто ждём, пока наводка стихнет. Конец свипа дёргает
-// UI_ClearScreen() — это все 8 строк экрана грязные разом, полный флеш при
-// DIV128 сам по себе занимает ~20-22мс, так что 15мс были короче самого
-// блита; берём с запасом
-#define RENDER_SETTLE_MS 60
 
 static uint16_t sqLevel = 0;
 static uint8_t sqStepsPassed = 0;
@@ -197,11 +188,9 @@ static void HandleStateTuning(void) {
     while (scan.currentF <= scan.endF && IsSkippable(scan.currentF))
       scan.currentF += scan.stepF;
 
-    // Пропущенные частоты никогда не измеряются, а SP_Begin() не чистит
-    // историю графика между свипами — без этого их пиксели навсегда
-    // застывают на значении из первого захода в диапазон (обычно 0),
-    // образуя периодические "полосы". Продлеваем последний реальный замер
-    // до начала пропуска, чтобы дыра каждый свип обновлялась заново.
+    // Пропущенные частоты не измеряются, а SP_Begin() не чистит историю
+    // графика — без этого их пиксели застывают навсегда. Продлеваем
+    // последний реальный замер до начала пропуска
     if (scan.currentF != skipFrom && skipFrom > scan.startF) {
       Measurement bridge = scan.measurement;
       bridge.f = skipFrom;
@@ -219,20 +208,13 @@ static void HandleStateTuning(void) {
   // Включаем VCO перед перестройкой (мог быть выключен после прошлого замера)
   Reg30_SetPllVco(true);
 
-  // precise=false: REG_30 не сбрасывается полностью при перестройке (только
-  // импульс ENABLE_VCO_CALIB), DSP не теряет непрерывность между соседними
-  // частотами — можно измерять быстрее, без полной паузы на рекалибровку
+  // precise=false: только импульс ENABLE_VCO_CALIB вместо полного сброса
+  // REG_30, без паузы на полную рекалибровку
   RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, false, false);
   RADIO_SetParam(ctx, PARAM_FREQUENCY, scan.currentF, false);
   RADIO_ApplySettings(ctx);
 
   SYSTICK_DelayUs(scan.warmupUs);
-
-  // Если экран только что перерисовывался (конец свипа, реальный кандидат),
-  // даём наводке от LCD SPI стихнуть перед тем как доверять замеру
-  uint32_t sinceBlit = Now() - ST7565_GetLastBlitTime();
-  if (sinceBlit < RENDER_SETTLE_MS)
-    SYSTICK_DelayMs(RENDER_SETTLE_MS - sinceBlit);
 
   scan.measurement.rssi = RADIO_GetRSSI(ctx);
   scan.measurement.noise = BK4819_GetNoise();
@@ -269,10 +251,7 @@ static void HandleStateTuning(void) {
 #define STE_CONFIRM_MS 60 // окно повторной проверки перед решением
 
 static void HandleStateChecking(void) {
-  // Даём каналу устояться STE_CONFIRM_MS без блокировки основного цикла,
-  // решение принимаем только после этого окна. Отдельная пауза SQL_DELAY
-  // перед этим больше не нужна — устаканивание noise/RSSI теперь сделано
-  // в HandleStateTuning (см. SCAN_SPILLOVER_SETTLE_US)
+  // Даём каналу устояться STE_CONFIRM_MS без блокировки основного цикла
   sqWasThinking = true;
   if (ElapsedMs() < STE_CONFIRM_MS)
     return;
@@ -542,14 +521,6 @@ void SCAN_HandleInterrupt(uint16_t int_bits) {
     scan.isOpen = false;
     gRedrawScreen = true;
   }
-}
-
-// Активная перестройка/проверка кандидата без прослушивания: аудио ещё не
-// звучит (оно включается только в LISTENING), поэтому пропуск опроса
-// BK4819 IRQ (DTMF/FSK/STE-tail) здесь безопасен и не заметен пользователю
-bool SCAN_IsSweeping(void) {
-  return scan.mode == SCAN_MODE_FREQUENCY &&
-         (scan.state == SCAN_STATE_TUNING || scan.state == SCAN_STATE_CHECKING);
 }
 
 bool SCAN_IsSqOpen(void) { return BK4819_IsSquelchOpen(); }

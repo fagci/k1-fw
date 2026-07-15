@@ -35,14 +35,14 @@ static void SPI_Init(void) {
   InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
   InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
 
-  // LOW (см. Speed выше) — медленнее фронты SCK/MOSI, меньше ВЧ-наводка от
-  // LCD-шины на приёмник; блит редкий и некритичный ко времени
   InitStruct.Pin = LL_GPIO_PIN_5;
   InitStruct.Pull = LL_GPIO_PULL_UP;
+  InitStruct.Speed = LL_GPIO_SPEED_FREQ_MEDIUM;
   LL_GPIO_Init(GPIOA, &InitStruct);
 
   InitStruct.Pin = LL_GPIO_PIN_7;
   InitStruct.Pull = LL_GPIO_PULL_NO;
+  InitStruct.Speed = LL_GPIO_SPEED_FREQ_MEDIUM;
   LL_GPIO_Init(GPIOA, &InitStruct);
 
   LL_SPI_InitTypeDef SPI_InitStruct;
@@ -55,10 +55,7 @@ static void SPI_Init(void) {
   SPI_InitStruct.NSS = LL_SPI_NSS_SOFT;
   SPI_InitStruct.BitOrder = LL_SPI_MSB_FIRST;
   SPI_InitStruct.CRCCalculation = LL_SPI_CRCCALCULATION_DISABLE;
-  // DIV16 всё ещё давал наводку на приёмник во время сканирования (см. серию
-  // фиксов вокруг SCAN_IsSweeping) — блит редкий и маленький (максимум 8
-  // строк по 128 байт), поэтому более медленный SPI некритичен по времени
-  SPI_InitStruct.BaudRate = LL_SPI_BAUDRATEPRESCALER_DIV128;
+  SPI_InitStruct.BaudRate = LL_SPI_BAUDRATEPRESCALER_DIV16;
   LL_SPI_Init(SPIx, &SPI_InitStruct);
 
   LL_SPI_Enable(SPIx);
@@ -152,14 +149,6 @@ void ST7565_ForceFullRedraw(void) {
 // ---------------------------------------------------------------------------
 // Blit — O(FRAME_LINES), никакого memcmp / checksum
 // ---------------------------------------------------------------------------
-// Момент последнего реального SPI-flush на LCD. Слежение отдельное от
-// gLastRender (см. st7565.h — тот static в хедере, у каждого .c своя копия,
-// не общий таймстамп), чтобы сканер мог достоверно узнать "давно ли писали
-// на экран" и выждать до следующего замера.
-static uint32_t lastBlitTime = 0;
-
-uint32_t ST7565_GetLastBlitTime(void) { return lastBlitTime; }
-
 void ST7565_Blit(void) {
   bool any = false;
   for (uint8_t l = 0; l < FRAME_LINES; l++) {
@@ -182,7 +171,6 @@ void ST7565_Blit(void) {
   }
   CS_Release();
   gRedrawScreen = false;
-  lastBlitTime = Now();
 }
 
 void ST7565_BlitLine(unsigned line) {
@@ -192,7 +180,6 @@ void ST7565_BlitLine(unsigned line) {
   FlushLine(line);
   CS_Release();
   gLineChanged[line] = false;
-  lastBlitTime = Now();
 }
 
 void ST7565_FillScreen(uint8_t value) {

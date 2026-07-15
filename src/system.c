@@ -207,12 +207,7 @@ void SYS_Main(void) {
     SETTINGS_UpdateSave();
     // BK4819 IRQ polling: чтение REG_0C — SPI-транзакция, раньше шла каждую мс
     // впустую. 3 мс не влияют на DTMF/FSK/STE-tail (события идут медленнее).
-    // Во время активного свипа (TUNING/CHECKING) аудио всё равно не звучит,
-    // а сам периодический опрос — источник наводки, дающей "гребёнку" на
-    // графике сканера (см. SCAN_IsSweeping) — поэтому пропускаем его и тут,
-    // как уже сделано для Analyser.
-    if ((gCurrentApp != APP_ANALYSER) && !SCAN_IsSweeping() &&
-        now - intPollTimer >= 3) {
+    if ((gCurrentApp != APP_ANALYSER) && now - intPollTimer >= 3) {
       checkInt();
       intPollTimer = now;
     }
@@ -252,23 +247,15 @@ void SYS_Main(void) {
       secondTimer = now;
     }
 
-    // При разряженной батарее STATUSLINE_update мигает иконкой безусловно
-    // на каждый вызов (каждые 50мс) — ещё один нетронутый периодический
-    // источник редрава/SPI-flush прямо во время свипа.
-    if (!SCAN_IsSweeping() && now - statusLineTimer >= 50) {
+    if (now - statusLineTimer >= 50) {
       STATUSLINE_update();
       statusLineTimer = now;
     }
 
     // Watchdog-redraw: страхует случай, когда dirty-флаг не был поднят.
     // STATUSLINE_update (раз в сек) сам ставит gRedrawScreen при изменениях,
-    // поэтому здесь достаточно редкого тика. ДИАГНОСТИКА: полностью
-    // отключаем этот тик на всё время частотного скана (не только
-    // TUNING/CHECKING, но и LISTENING), чтобы редра во время скана шёл
-    // исключительно по явным событиям из scan.c (конец свипа, реальный
-    // кандидат) — если "полоса" пропадёт/изменится, значит дело было
-    // именно в этом тике, а не в самих событиях сканера.
-    if (SCAN_GetMode() != SCAN_MODE_FREQUENCY && now - gLastRender >= 1000) {
+    // поэтому здесь достаточно редкого тика.
+    if (now - gLastRender >= 1000) {
       gRedrawScreen = true;
     }
 
