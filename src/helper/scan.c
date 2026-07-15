@@ -529,6 +529,14 @@ void SCAN_HandleInterrupt(uint16_t int_bits) {
   }
 }
 
+// Активная перестройка/проверка кандидата без прослушивания: аудио ещё не
+// звучит (оно включается только в LISTENING), поэтому пропуск опроса
+// BK4819 IRQ (DTMF/FSK/STE-tail) здесь безопасен и не заметен пользователю
+bool SCAN_IsSweeping(void) {
+  return scan.mode == SCAN_MODE_FREQUENCY &&
+         (scan.state == SCAN_STATE_TUNING || scan.state == SCAN_STATE_CHECKING);
+}
+
 bool SCAN_IsSqOpen(void) { return BK4819_IsSquelchOpen(); }
 const char *SCAN_GetStateName(void) { return SCAN_STATE_NAMES[scan.state]; }
 ScanState SCAN_GetState(void) { return scan.state; }

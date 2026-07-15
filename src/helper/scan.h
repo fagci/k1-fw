@@ -125,6 +125,7 @@ uint16_t SCAN_GetSquelchLevel(void);
 
 void SCAN_HandleInterrupt(uint16_t int_bits);
 bool SCAN_IsSqOpen(void);
+bool SCAN_IsSweeping(void);
 const char *SCAN_GetStateName(void);
 
 extern const char *SCAN_MODE_NAMES[];
