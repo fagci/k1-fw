@@ -259,8 +259,14 @@ void SYS_Main(void) {
 
     // Watchdog-redraw: страхует случай, когда dirty-флаг не был поднят.
     // STATUSLINE_update (раз в сек) сам ставит gRedrawScreen при изменениях,
-    // поэтому здесь достаточно редкого тика.
-    if (now - gLastRender >= 1000) {
+    // поэтому здесь достаточно редкого тика. Во время активного свипа этот
+    // тик — единственный периодический триггер редрава (HandleStateTuning
+    // сам gRedrawScreen не трогает), а appRender() сразу за ним — это полный
+    // UI_ClearScreen+APPS_render()+SPI-flush на LCD в следующей же итерации
+    // после замера. Именно это давало периодическую "гребёнку" в спектре
+    // (checkInt тут был ни при чём) — пропускаем watchdog-тик, пока идёт
+    // TUNING/CHECKING; конец свипа и реальные кандидаты форсируют редра сами.
+    if (!SCAN_IsSweeping() && now - gLastRender >= 1000) {
       gRedrawScreen = true;
     }
 
