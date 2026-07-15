@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 bool gLootlistActive;
+static ScanMode prevScanMode = SCAN_MODE_NONE;
 static uint8_t menuIndex = 0;
 static const uint8_t MENU_ITEM_H_LARGER = 15;
 static void initMenu();
@@ -265,6 +266,7 @@ static bool action(const uint16_t index, KEY_Code_t key, Key_State_t state) {
     case KEY_EXIT:
       MENU_Deinit();
       gLootlistActive = false;
+      SCAN_SetMode(prevScanMode);
       return true;
     case KEY_PTT:
       tuneToLoot(loot, true);
@@ -566,6 +568,7 @@ void LOOTLIST_render(void) {
 }
 
 void LOOTLIST_init(void) {
+  prevScanMode = SCAN_GetMode();
   SCAN_SetMode(SCAN_MODE_SINGLE);
   initMenu();
   sortType = SORT_F;
