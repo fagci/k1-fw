@@ -11,7 +11,7 @@
 typedef enum {
   SCAN_STATE_IDLE, // Ждём команды (только в командном режиме)
   SCAN_STATE_TUNING, // Переключаем частоту и ждём warmup
-  SCAN_STATE_CHECKING, // Ждём checkDelayMs и проверяем squelch железом
+  SCAN_STATE_CHECKING, // Ждём подтверждения и проверяем squelch железом
   SCAN_STATE_LISTENING, // Squelch открыт, слушаем сигнал
 } ScanState;
 
@@ -59,7 +59,6 @@ typedef struct {
 
   // Таймауты
   uint32_t warmupUs; // Задержка после переключения частоты (warmup)
-  uint32_t checkDelayMs; // Задержка перед аппаратной проверкой squelch
 
   // Статистика
   uint32_t scanCycles;

@@ -17,6 +17,10 @@
 // Адаптивный порог: снижается раз в N шагов без сигнала
 #define SQ_DECAY_STEPS 64
 
+// Окно устаканивания noise при precise=false, если обнаружен "хвост" сигнала
+// с предыдущей частоты (см. HandleStateTuning)
+#define SCAN_SPILLOVER_SETTLE_US 4000
+
 static uint16_t sqLevel = 0;
 static uint8_t sqStepsPassed = 0;
 static bool sqWasThinking = false;
@@ -25,7 +29,6 @@ static ScanContext scan = {
     .state = SCAN_STATE_IDLE,
     .mode = SCAN_MODE_SINGLE,
     .warmupUs = 2500,
-    .checkDelayMs = SQL_DELAY,
     .isOpen = false,
     .cmdRangeActive = false,
     .cmdCtx = NULL,
@@ -199,11 +202,22 @@ static void HandleStateTuning(void) {
   // Включаем VCO перед перестройкой (мог быть выключен после прошлого замера)
   Reg30_SetPllVco(true);
 
-  RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, true, false);
+  // precise=false: REG_30 не сбрасывается полностью при перестройке (только
+  // импульс ENABLE_VCO_CALIB), DSP не теряет непрерывность между соседними
+  // частотами — можно измерять быстрее, без полной паузы на рекалибровку
+  RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, false, false);
   RADIO_SetParam(ctx, PARAM_FREQUENCY, scan.currentF, false);
   RADIO_ApplySettings(ctx);
 
   SYSTICK_DelayUs(scan.warmupUs);
+
+  // При precise=false noise может ещё несколько мс "тянуть" сигнал с
+  // предыдущей частоты. Если сразу после паузы noise ниже порога шумодава —
+  // предыдущая частота была занята, замер ещё не устоялся, нужно выждать
+  // полное окно (~4мс), иначе пик RSSI/noise уедет на соседний уровень
+  // вместо реальной частоты. Если сразу чисто — ждать дольше не нужно.
+  if (BK4819_GetNoise() < GetSql(ctx->squelch.value).no)
+    SYSTICK_DelayUs(SCAN_SPILLOVER_SETTLE_US);
 
   scan.measurement.rssi = RADIO_GetRSSI(ctx);
   scan.measurement.noise = BK4819_GetNoise();
@@ -240,14 +254,12 @@ static void HandleStateTuning(void) {
 #define STE_CONFIRM_MS 60 // окно повторной проверки перед решением
 
 static void HandleStateChecking(void) {
-  uint32_t elapsed = ElapsedMs();
-  if (elapsed < scan.checkDelayMs)
-    return;
-
-  // двойная проверка: даём каналу устояться STE_CONFIRM_MS без блокировки
-  // основного цикла, решение принимаем только после этого окна
+  // Даём каналу устояться STE_CONFIRM_MS без блокировки основного цикла,
+  // решение принимаем только после этого окна. Отдельная пауза SQL_DELAY
+  // перед этим больше не нужна — устаканивание noise/RSSI теперь сделано
+  // в HandleStateTuning (см. SCAN_SPILLOVER_SETTLE_US)
   sqWasThinking = true;
-  if (elapsed < scan.checkDelayMs + STE_CONFIRM_MS)
+  if (ElapsedMs() < STE_CONFIRM_MS)
     return;
 
   bool isOpen = BK4819_IsSquelchOpen();
