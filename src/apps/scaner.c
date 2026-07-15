@@ -81,9 +81,15 @@ void SCANER_init(void) {
 ScanState oldScanState;
 void SCANER_update(void) {
   ScanState state = SCAN_GetState();
-  if (state != oldScanState) {
+  ScanState prev = oldScanState;
+  if (state != prev) {
     oldScanState = state;
-    gRedrawScreen = true;
+    // TUNING<->CHECKING моргает на каждом кандидате адаптивного порога
+    // (обычно ложном) — полный редра+SPI-flush экрана на этот переход не
+    // нужен и создаёт наводку прямо перед соседними замерами. Реальный
+    // сигнал (LISTENING) редра форсирует отдельно, в scan.c.
+    if (state != SCAN_STATE_CHECKING && prev != SCAN_STATE_CHECKING)
+      gRedrawScreen = true;
   }
 }
 
