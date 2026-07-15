@@ -207,7 +207,12 @@ void SYS_Main(void) {
     SETTINGS_UpdateSave();
     // BK4819 IRQ polling: чтение REG_0C — SPI-транзакция, раньше шла каждую мс
     // впустую. 3 мс не влияют на DTMF/FSK/STE-tail (события идут медленнее).
-    if ((gCurrentApp != APP_ANALYSER) && now - intPollTimer >= 3) {
+    // Во время активного свипа (TUNING/CHECKING) аудио всё равно не звучит,
+    // а сам периодический опрос — источник наводки, дающей "гребёнку" на
+    // графике сканера (см. SCAN_IsSweeping) — поэтому пропускаем его и тут,
+    // как уже сделано для Analyser.
+    if ((gCurrentApp != APP_ANALYSER) && !SCAN_IsSweeping() &&
+        now - intPollTimer >= 3) {
       checkInt();
       intPollTimer = now;
     }
