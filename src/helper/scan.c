@@ -184,8 +184,20 @@ static void HandleStateTuning(void) {
       return;
     }
   } else {
+    uint32_t skipFrom = scan.currentF;
     while (scan.currentF <= scan.endF && IsSkippable(scan.currentF))
       scan.currentF += scan.stepF;
+
+    // Пропущенные частоты никогда не измеряются, а SP_Begin() не чистит
+    // историю графика между свипами — без этого их пиксели навсегда
+    // застывают на значении из первого захода в диапазон (обычно 0),
+    // образуя периодические "полосы". Продлеваем последний реальный замер
+    // до начала пропуска, чтобы дыра каждый свип обновлялась заново.
+    if (scan.currentF != skipFrom && skipFrom > scan.startF) {
+      Measurement bridge = scan.measurement;
+      bridge.f = skipFrom;
+      SP_AddPoint(&bridge);
+    }
   }
 
   if (scan.currentF > scan.endF) {
