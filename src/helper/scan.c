@@ -1,5 +1,6 @@
 #include "scan.h"
 #include "../driver/bk4829.h"
+#include "../driver/st7565.h"
 #include "../driver/systick.h"
 #include "../driver/uart.h"
 #include "../helper/lootlist.h"
@@ -16,6 +17,11 @@
 
 // Адаптивный порог: снижается раз в N шагов без сигнала
 #define SQ_DECAY_STEPS 64
+
+// Даже с DIV128 на LCD SPI (см. st7565.c) блит наводит помеху на ближайший
+// замер — редких неизбежных редравов (конец свипа, реальный кандидат) не
+// избежать, поэтому просто ждём, пока наводка стихнет
+#define RENDER_SETTLE_MS 15
 
 static uint16_t sqLevel = 0;
 static uint8_t sqStepsPassed = 0;
@@ -218,6 +224,12 @@ static void HandleStateTuning(void) {
   RADIO_ApplySettings(ctx);
 
   SYSTICK_DelayUs(scan.warmupUs);
+
+  // Если экран только что перерисовывался (конец свипа, реальный кандидат),
+  // даём наводке от LCD SPI стихнуть перед тем как доверять замеру
+  uint32_t sinceBlit = Now() - ST7565_GetLastBlitTime();
+  if (sinceBlit < RENDER_SETTLE_MS)
+    SYSTICK_DelayMs(RENDER_SETTLE_MS - sinceBlit);
 
   scan.measurement.rssi = RADIO_GetRSSI(ctx);
   scan.measurement.noise = BK4819_GetNoise();
