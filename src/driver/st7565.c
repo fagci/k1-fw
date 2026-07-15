@@ -152,6 +152,14 @@ void ST7565_ForceFullRedraw(void) {
 // ---------------------------------------------------------------------------
 // Blit — O(FRAME_LINES), никакого memcmp / checksum
 // ---------------------------------------------------------------------------
+// Момент последнего реального SPI-flush на LCD. Слежение отдельное от
+// gLastRender (см. st7565.h — тот static в хедере, у каждого .c своя копия,
+// не общий таймстамп), чтобы сканер мог достоверно узнать "давно ли писали
+// на экран" и выждать до следующего замера.
+static uint32_t lastBlitTime = 0;
+
+uint32_t ST7565_GetLastBlitTime(void) { return lastBlitTime; }
+
 void ST7565_Blit(void) {
   bool any = false;
   for (uint8_t l = 0; l < FRAME_LINES; l++) {
@@ -174,6 +182,7 @@ void ST7565_Blit(void) {
   }
   CS_Release();
   gRedrawScreen = false;
+  lastBlitTime = Now();
 }
 
 void ST7565_BlitLine(unsigned line) {
@@ -183,6 +192,7 @@ void ST7565_BlitLine(unsigned line) {
   FlushLine(line);
   CS_Release();
   gLineChanged[line] = false;
+  lastBlitTime = Now();
 }
 
 void ST7565_FillScreen(uint8_t value) {
