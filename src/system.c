@@ -252,7 +252,10 @@ void SYS_Main(void) {
       secondTimer = now;
     }
 
-    if (now - statusLineTimer >= 50) {
+    // При разряженной батарее STATUSLINE_update мигает иконкой безусловно
+    // на каждый вызов (каждые 50мс) — ещё один нетронутый периодический
+    // источник редрава/SPI-flush прямо во время свипа.
+    if (!SCAN_IsSweeping() && now - statusLineTimer >= 50) {
       STATUSLINE_update();
       statusLineTimer = now;
     }
