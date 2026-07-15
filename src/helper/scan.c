@@ -237,13 +237,19 @@ static void HandleStateTuning(void) {
   }
 }
 
+#define STE_CONFIRM_MS 60 // окно повторной проверки перед решением
+
 static void HandleStateChecking(void) {
-  if (ElapsedMs() < scan.checkDelayMs)
+  uint32_t elapsed = ElapsedMs();
+  if (elapsed < scan.checkDelayMs)
     return;
 
-  // двойная проверка: пауза 60 мс, потом решение
+  // двойная проверка: даём каналу устояться STE_CONFIRM_MS без блокировки
+  // основного цикла, решение принимаем только после этого окна
   sqWasThinking = true;
-  SYSTICK_DelayMs(60);
+  if (elapsed < scan.checkDelayMs + STE_CONFIRM_MS)
+    return;
+
   bool isOpen = BK4819_IsSquelchOpen();
   scan.isOpen = isOpen;
   scan.measurement.open = isOpen;
@@ -263,8 +269,9 @@ static void HandleStateChecking(void) {
 
     ChangeState(SCAN_STATE_LISTENING);
   } else {
-    // ложный кандидат — поднимаем порог
-    sqLevel++;
+    // ложный кандидат — поднимаем порог, но не выше реального диапазона RSSI
+    if (sqLevel < RSSI_MAX)
+      sqLevel++;
     scan.currentF += scan.stepF;
     ChangeState(SCAN_STATE_TUNING);
   }
