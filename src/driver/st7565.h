@@ -20,7 +20,6 @@ extern bool gSuppressDisplayUpdates;
 
 void ST7565_DrawLine(const unsigned int Column, const unsigned int Line,
                      const uint8_t *pBitmap, const unsigned int Size);
-uint32_t ST7565_GetLastBlitTime(void);
 void ST7565_Blit(void);
 void ST7565_BlitLine(unsigned line);
 void ST7565_BlitStatusLine(void);
