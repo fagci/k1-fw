@@ -250,14 +250,3 @@ void ST7565_SetContrast(uint8_t contrast) {
   CS_Release();
 }
 
-void ST7565_FixInterfGlitch(void) {
-  CS_Assert();
-  send_init_cmds();
-  ST7565_WriteByte(ST7565_CMD_POWER_CIRCUIT | 0b111);
-  ST7565_WriteByte(ST7565_CMD_SET_START_LINE | 0);
-  ST7565_WriteByte(ST7565_CMD_DISPLAY_ON_OFF | 1);
-  CS_Release();
-
-  memset(gLineChanged, true, sizeof(gLineChanged));
-  gRedrawScreen = true;
-}

@@ -195,6 +195,10 @@ static bool subAction(uint16_t index, KEY_Code_t key, Key_State_t state) {
   if (key == KEY_UP || key == KEY_DOWN) {
     // index уже обновлён в menu; сбрасываем через resetPendingParam
     pendingAction = KA_NONE;
+    // KA_VOX недоступен для назначения — не переработан, шагаем дальше
+    if ((KeyAction)submenu.i == KA_VOX) {
+      submenu.i = IncDecU(submenu.i, 0, submenu.num_items, key == KEY_DOWN);
+    }
     return false; // меню само обработало навигацию
   }
 
