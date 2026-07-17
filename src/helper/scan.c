@@ -14,14 +14,15 @@
 #define SOFT_SQ_HEADROOM 25 // % смягчения аппаратных порогов
 #define STE_DEBOUNCE_MS 250 // окно подавления STE-хвоста
 
-// При precise=false (нет полного сброса REG_30) DSP может ещё "помнить"
-// предыдущую, более сильную частоту. Если noise заметно ниже предыдущего
-// замера — верный признак, что измерение ещё не устоялось. Добираем
-// время замера до ~4мс вместо базовых 1800мкс (2200 + 1800 = 4000).
-#define NOISE_SETTLE_EXTRA_US 2200
-#define NOISE_DROP_THRESHOLD_PCT 10
+// Двухфазное обнаружение (по эмпирическим замерам). RSSI "усаживается" на
+// реальный канал быстро (~scan.warmupUs, ~2.2мс), но сам по себе не
+// отличает сигнал от шума/наводки — годится только как дешёвый
+// предфильтр "стоит ли досиживать". Noise усаживается медленнее (нужно
+// добрать время примерно до 5мс), зато селективен — отражает попадание
+// сигнала именно в полосу RF-фильтра, поэтому окончательное решение
+// принимает он, а не RSSI.
+#define NOISE_CONFIRM_EXTRA_US 2800 // добор с ~2200 до ~5000мкс
 
-static uint8_t prevNoise = 0;
 static uint32_t preScanF = 0;
 
 static ScanContext scan = {
@@ -212,34 +213,37 @@ static void HandleStateTuning(void) {
 
   SYSTICK_DelayUs(scan.warmupUs);
 
-  uint8_t noise = BK4819_GetNoise();
-
-  // Заметное падение noise относительно предыдущего замера — добираем
-  // время устаканивания до ~4мс и перемеряем
-  if (prevNoise && noise < prevNoise &&
-      (uint32_t)(prevNoise - noise) * 100 / prevNoise >=
-          NOISE_DROP_THRESHOLD_PCT) {
-    SYSTICK_DelayUs(NOISE_SETTLE_EXTRA_US);
-    noise = BK4819_GetNoise();
-  }
-  prevNoise = noise;
-
   scan.measurement.rssi = RADIO_GetRSSI(ctx);
-  scan.measurement.noise = noise;
+  scan.measurement.noise = BK4819_GetNoise();
   scan.measurement.glitch = BK4819_GetGlitch();
   scan.measurement.f = scan.currentF;
 
   scan.scanCycles++;
   UpdateCPS();
 
-  SP_AddPoint(&scan.measurement);
   if (scan.mode == SCAN_MODE_ANALYSER) {
+    SP_AddPoint(&scan.measurement);
     Reg30_SetPllVco(false);
     scan.currentF += scan.stepF;
     return;
   }
 
-  bool isOpen = BK4819_IsSquelchOpen();
+  // Фаза 1: RSSI уже усажен на канал (см. константы выше), но это дешёвый
+  // предфильтр — сам по себе не отличает сигнал от шума/наводки
+  SquelchPreset sq = GetSqlPreset(ctx->squelch.value, scan.currentF);
+  bool candidate = scan.measurement.rssi >= sq.ro;
+
+  if (candidate) {
+    // Фаза 2: досиживаем до ~5мс — noise успевает устояться и селективно
+    // отражает попадание сигнала в полосу RF-фильтра. Он и решает.
+    SYSTICK_DelayUs(NOISE_CONFIRM_EXTRA_US);
+    scan.measurement.noise = BK4819_GetNoise();
+    scan.measurement.glitch = BK4819_GetGlitch();
+  }
+
+  SP_AddPoint(&scan.measurement);
+
+  bool isOpen = candidate && scan.measurement.noise <= sq.no;
   scan.isOpen = isOpen;
   scan.measurement.open = isOpen;
   LOOT_Update(&scan.measurement);
@@ -418,7 +422,6 @@ void SCAN_Init(void) {
   scan.scanCycles = 0;
   scan.currentCps = 0;
   scan.radioTimer = Now();
-  prevNoise = 0;
 
   ApplyBandSettings();
   vfo->is_open = false;
