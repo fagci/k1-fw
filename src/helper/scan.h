@@ -93,6 +93,8 @@ void SCAN_SetMode(ScanMode mode);
 ScanMode SCAN_GetMode(void);
 void SCAN_SaveFrequency(void);
 void SCAN_RestoreFrequency(void);
+void SCAN_SaveScanPosition(void);
+void SCAN_ResumeFromLastPosition(void);
 
 void SCAN_Check(void); // Главный цикл обновления
 
