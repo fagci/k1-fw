@@ -61,9 +61,9 @@ void VFO1_init(void) {
     setChannel(vfo->channel_index);
   }
 
-  updateBand();
-
   SCAN_SetMode(SCAN_MODE_SINGLE);
+
+  updateBand();
 }
 
 void VFO1_update(void) {}

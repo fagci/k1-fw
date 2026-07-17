@@ -20,6 +20,7 @@
 static uint16_t sqLevel = 0;
 static uint8_t sqStepsPassed = 0;
 static bool sqWasThinking = false;
+static uint32_t preScanF = 0;
 
 static ScanContext scan = {
     .state = SCAN_STATE_IDLE,
@@ -378,6 +379,13 @@ void SCAN_SetMode(ScanMode mode) {
   if (scan.cmdCtx && mode != scan.mode)
     SCAN_SetCommandMode(false);
 
+  // HandleStateTuning пишет каждую перебираемую частоту прямо в ctx->frequency
+  // (тот же VFOContext, что и обычный VFO), поэтому запоминаем, с какой
+  // частоты стартовали, чтобы вернуть её при выходе в SINGLE.
+  bool wasScanning = scan.mode != SCAN_MODE_SINGLE;
+  if (!wasScanning && mode != SCAN_MODE_SINGLE)
+    preScanF = ctx->frequency;
+
   scan.mode = mode;
   scan.scanCycles = 0;
   ChangeState(SCAN_STATE_IDLE);
@@ -385,6 +393,14 @@ void SCAN_SetMode(ScanMode mode) {
   switch (mode) {
   case SCAN_MODE_SINGLE:
     scan.cmdRangeActive = false;
+    // Восстанавливаем, только если частоту после сканирования никто не
+    // менял явно (напр. "tune to loot" перед или после этого вызова) —
+    // тогда ctx->frequency всё ещё равна последней частоте скана.
+    if (wasScanning && ctx->frequency == scan.currentF) {
+      RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, true, false);
+      RADIO_SetParam(ctx, PARAM_FREQUENCY, preScanF, false);
+      RADIO_ApplySettings(ctx);
+    }
     scan.currentF = ctx->frequency;
     break;
   case SCAN_MODE_FREQUENCY:
