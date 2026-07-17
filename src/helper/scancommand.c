@@ -141,14 +141,21 @@ bool SCMD_Advance(SCMD_Context *ctx) {
     return HandleGoto(ctx);
   }
 
-  // Загружаем следующую команду
+  // Загружаем следующую команду (только для SCMD_GetNext/подглядывания —
+  // не признак успеха самого advance, см. ниже)
   ctx->has_next = LoadCommand(ctx, &ctx->next);
 
-  if (!ctx->has_next) {
+  // Успех advance определяется тем, что текущий индекс ещё в пределах
+  // списка, а НЕ тем, удалось ли подгрузить команду ПОСЛЕ неё: иначе
+  // переход на последнюю команду списка (для неё "next" не существует)
+  // ошибочно считается концом списка и вызывающая сторона сразу же
+  // делает rewind, полностью пропуская последнюю команду.
+  bool inBounds = ctx->cmd_index < ctx->cmd_count;
+  if (!inBounds) {
     Log("[SCMD] No more commands");
   }
 
-  return ctx->has_next;
+  return inBounds;
 }
 
 void SCMD_Rewind(SCMD_Context *ctx) {
