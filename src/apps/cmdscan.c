@@ -282,7 +282,12 @@ void CMDSCAN_render(void) {
                  SCMD_NAMES_SHORT[cmd->type], cmdState.execCount);
   }
 
-  mhzToS(freqBuf, vfo->msm.f);
+  // vfo->msm.f не обновляется в командном режиме: RADIO_UpdateMeasurement
+  // (единственное место, где оно пишется) вызывается только для
+  // SCAN_MODE_SINGLE, а командный скан работает под SCAN_MODE_FREQUENCY —
+  // экран застревал на частоте, которая была на момент входа в приложение.
+  // ctx->frequency обновляется на каждом шаге через HandleStateTuning.
+  mhzToS(freqBuf, ctx->frequency);
   PrintMediumEx(LCD_XCENTER, 12 + 8 + 8, POS_C, C_FILL, "%s", freqBuf);
 
   if (vfo->is_open) {
