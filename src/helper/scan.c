@@ -17,11 +17,15 @@
 // Двухфазное обнаружение (по эмпирическим замерам). RSSI "усаживается" на
 // реальный канал быстро (~scan.warmupUs, ~2.2мс), но сам по себе не
 // отличает сигнал от шума/наводки — годится только как дешёвый
-// предфильтр "стоит ли досиживать". Noise усаживается медленнее (нужно
-// добрать время примерно до 5мс), зато селективен — отражает попадание
-// сигнала именно в полосу RF-фильтра, поэтому окончательное решение
-// принимает он, а не RSSI.
-#define NOISE_CONFIRM_EXTRA_US 2800 // добор с ~2200 до ~5000мкс
+// предфильтр "стоит ли досиживать". Аппаратный бит шумодава (0x0C бит1)
+// внутри себя учитывает и glitch, а по замерам пользователя glitch
+// становится значимым только к ~10мс. Раньше это маскировалось побочной
+// задержкой GetSqlPreset() (чтение пресета с флеша, ~29мс на вызов) — как
+// только её убрали кэшированием (см. GetSqlPresetCached), реальный аппаратный
+// бит перестал успевать взводиться даже на сильных сигналах. Поэтому здесь
+// не фиксированный добор, а досиживание до фиксированного ИТОГО времени с
+// момента перестройки — не зависит от scan.warmupUs (он настраиваемый).
+#define SQUELCH_CONFIRM_TOTAL_US 10000
 
 static uint32_t preScanF = 0;
 
@@ -224,7 +228,12 @@ static void HandleStateTuning(void) {
   Reg30_SetPllVco(true);
 
   // precise=false: только импульс ENABLE_VCO_CALIB вместо полного сброса
-  // REG_30, без паузы на полную рекалибровку
+  // REG_30, без паузы на полную рекалибровку. Полный сброс (precise=true)
+  // глушит на время рестабилизации весь аналоговый тракт, а не только
+  // калибровку VCO — фиксированное окно замера (warmupUs) с этим не
+  // справляется, из-за чего замер на этом шаге может ложно не увидеть
+  // даже сильный сигнал. Поэтому здесь всегда precise=false; см.
+  // HandleStateListening/SCAN_Next про попытку форсировать true.
   RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, false, false);
   RADIO_SetParam(ctx, PARAM_FREQUENCY, scan.currentF, false);
   RADIO_ApplySettings(ctx);
@@ -253,12 +262,14 @@ static void HandleStateTuning(void) {
   bool isOpen = false;
 
   if (candidate) {
-    // Фаза 2: досиживаем до ~5мс — тот же критерий, что потом держит
-    // LISTENING (HandleStateListening проверяет тот же аппаратный
-    // регистр через IsSqOpenGated). Если решать иначе (напр. только по
-    // софтовому noise), железо тут же скажет "закрыто" и получим
-    // моментальный открыл-закрыл на каждом ложном кандидате.
-    SYSTICK_DelayUs(NOISE_CONFIRM_EXTRA_US);
+    // Фаза 2: досиживаем до SQUELCH_CONFIRM_TOTAL_US суммарно с момента
+    // перестройки — тот же критерий, что потом держит LISTENING
+    // (HandleStateListening проверяет тот же аппаратный регистр через
+    // IsSqOpenGated). Если решать иначе (напр. только по софтовому noise),
+    // железо тут же скажет "закрыто" и получим моментальный
+    // открыл-закрыл на каждом ложном кандидате.
+    if (SQUELCH_CONFIRM_TOTAL_US > scan.warmupUs)
+      SYSTICK_DelayUs(SQUELCH_CONFIRM_TOTAL_US - scan.warmupUs);
     scan.measurement.noise = BK4819_GetNoise();
     scan.measurement.glitch = BK4819_GetGlitch();
     isOpen = BK4819_IsSquelchOpen();
@@ -370,7 +381,7 @@ void SCAN_Check(void) {
     break;
   case SCAN_STATE_CHECKING:
     // Больше не используется: проверка шумодава теперь встроена прямо в
-    // HandleStateTuning сразу после замера — см. NOISE_SETTLE_EXTRA_US.
+    // HandleStateTuning сразу после замера — см. SQUELCH_CONFIRM_TOTAL_US.
     break;
   case SCAN_STATE_LISTENING:
     HandleStateListening();
