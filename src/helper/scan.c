@@ -14,12 +14,6 @@
 #define SOFT_SQ_HEADROOM 25 // % смягчения аппаратных порогов
 #define STE_DEBOUNCE_MS 250 // окно подавления STE-хвоста
 
-// Адаптивный порог: снижается раз в N шагов без сигнала
-#define SQ_DECAY_STEPS 64
-
-static uint16_t sqLevel = 0;
-static uint8_t sqStepsPassed = 0;
-static bool sqWasThinking = false;
 static uint32_t preScanF = 0;
 
 static ScanContext scan = {
@@ -68,13 +62,6 @@ static void STE_StartGate(void) {
 
 static bool IsSqOpenGated(void) {
   return BK4819_IsSquelchOpen() && (Now() >= sqReopenAt);
-}
-
-// Детекция сигнала по адаптивному порогу sqLevel
-static bool SimpleSq_Check(uint16_t rssi) {
-  if (!sqLevel && rssi)
-    sqLevel = rssi - 1; // инициализация при первом сигнале
-  return rssi >= sqLevel;
 }
 
 static bool IsSkippable(uint32_t f) {
@@ -232,28 +219,14 @@ static void HandleStateTuning(void) {
     return;
   }
 
-  if (SimpleSq_Check(scan.measurement.rssi)) {
-    ChangeState(SCAN_STATE_CHECKING);
-  } else {
-    Reg30_SetPllVco(false);
-    scan.measurement.open = false;
-    scan.currentF += scan.stepF;
-
-    // деградация порога раз в SQ_DECAY_STEPS шагов без сигнала
-    if (++sqStepsPassed > SQ_DECAY_STEPS) {
-      sqStepsPassed = 0;
-      if (!sqWasThinking && sqLevel > 0)
-        sqLevel--;
-      sqWasThinking = false;
-    }
-  }
+  // Решение принимает аппаратный шумодав (REG_0C) в HandleStateChecking —
+  // здесь только собираем RSSI/noise/glitch для спектра и передаём дальше
+  ChangeState(SCAN_STATE_CHECKING);
 }
 
-#define STE_CONFIRM_MS 60 // окно повторной проверки перед решением
+#define STE_CONFIRM_MS 4 // устаканивание перед чтением регистра шумодава
 
 static void HandleStateChecking(void) {
-  // Даём каналу устояться STE_CONFIRM_MS без блокировки основного цикла
-  sqWasThinking = true;
   if (ElapsedMs() < STE_CONFIRM_MS)
     return;
 
@@ -276,9 +249,7 @@ static void HandleStateChecking(void) {
 
     ChangeState(SCAN_STATE_LISTENING);
   } else {
-    // ложный кандидат — поднимаем порог, но не выше реального диапазона RSSI
-    if (sqLevel < RSSI_MAX)
-      sqLevel++;
+    Reg30_SetPllVco(false);
     scan.currentF += scan.stepF;
     ChangeState(SCAN_STATE_TUNING);
   }
@@ -439,9 +410,6 @@ void SCAN_Init(void) {
   scan.scanCycles = 0;
   scan.currentCps = 0;
   scan.radioTimer = Now();
-  sqLevel = 0;
-  sqStepsPassed = 0;
-  sqWasThinking = false;
 
   ApplyBandSettings();
   vfo->is_open = false;
