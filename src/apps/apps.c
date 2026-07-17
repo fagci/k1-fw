@@ -191,12 +191,15 @@ bool APPS_exit(void) {
 
   bool wasRadioStateFresh = gRadioState && apps[gCurrentApp].needsRadioState;
 
-  // Save VFO state before exiting current app
+  // deinit до save: приложение может напоследок поправить свой ctx (см.
+  // SCANER_deinit восстановление частоты после сканирования) — это должно
+  // попасть в сохранение, а не быть перезаписано следующим тиком автосейва
+  APPS_deinit();
+
   if (wasRadioStateFresh) {
     RADIO_SaveAllVFOs(gRadioState);
   }
 
-  APPS_deinit();
   AppType_t app = popApp();
   gCurrentApp = APPS_Peek();
 

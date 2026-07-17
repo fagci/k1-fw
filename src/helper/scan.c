@@ -379,13 +379,6 @@ void SCAN_SetMode(ScanMode mode) {
   if (scan.cmdCtx && mode != scan.mode)
     SCAN_SetCommandMode(false);
 
-  // HandleStateTuning пишет каждую перебираемую частоту прямо в ctx->frequency
-  // (тот же VFOContext, что и обычный VFO), поэтому запоминаем, с какой
-  // частоты стартовали, чтобы вернуть её при выходе в SINGLE.
-  bool wasScanning = scan.mode != SCAN_MODE_SINGLE;
-  if (!wasScanning && mode != SCAN_MODE_SINGLE)
-    preScanF = ctx->frequency;
-
   scan.mode = mode;
   scan.scanCycles = 0;
   ChangeState(SCAN_STATE_IDLE);
@@ -393,14 +386,6 @@ void SCAN_SetMode(ScanMode mode) {
   switch (mode) {
   case SCAN_MODE_SINGLE:
     scan.cmdRangeActive = false;
-    // Восстанавливаем, только если частоту после сканирования никто не
-    // менял явно (напр. "tune to loot" перед или после этого вызова) —
-    // тогда ctx->frequency всё ещё равна последней частоте скана.
-    if (wasScanning && ctx->frequency == scan.currentF) {
-      RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, true, false);
-      RADIO_SetParam(ctx, PARAM_FREQUENCY, preScanF, false);
-      RADIO_ApplySettings(ctx);
-    }
     scan.currentF = ctx->frequency;
     break;
   case SCAN_MODE_FREQUENCY:
@@ -415,6 +400,24 @@ void SCAN_SetMode(ScanMode mode) {
 }
 
 ScanMode SCAN_GetMode(void) { return scan.mode; }
+
+// HandleStateTuning пишет каждую перебираемую частоту прямо в ctx->frequency
+// (тот же VFOContext, что и обычный VFO). SCAN_SaveFrequency/RestoreFrequency
+// — явная пара для запоминания частоты перед стартом сканирования и её
+// восстановления при полном выходе из скана (см. SCANER_init/_deinit).
+// Не встроено в SCAN_SetMode(SCAN_MODE_SINGLE): эта функция также
+// используется для временной паузы (напр. просмотр Loot List поверх
+// активного скана), где восстанавливать частоту не нужно.
+void SCAN_SaveFrequency(void) { preScanF = ctx->frequency; }
+
+void SCAN_RestoreFrequency(void) {
+  // Кто-то уже явно перестроился (напр. "tune to loot") — не трогаем
+  if (ctx->frequency != scan.currentF)
+    return;
+  RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, true, false);
+  RADIO_SetParam(ctx, PARAM_FREQUENCY, preScanF, false);
+  RADIO_ApplySettings(ctx);
+}
 
 void SCAN_Init(void) {
   scan.lastCpsTime = Now();
