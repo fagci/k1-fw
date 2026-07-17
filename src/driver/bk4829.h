@@ -224,11 +224,6 @@ void BK4819_SetIfMode(uint8_t mode);
 ModulationType BK4819_GetModulation();
 bool BK4819_IsSquelchOpen();
 
-// Spur shift: changes VCO band + PLL CP to move crystal harmonics
-// Mode 0 = default (current), 1-3 = alternate spur positions
-void BK4819_SetSpurShift(uint8_t mode);
-uint8_t BK4819_GetSpurShift(void);
-
 XtalMode BK4819_XtalGet();
 void BK4819_XtalSet(XtalMode mode);
 

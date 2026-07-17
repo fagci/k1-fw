@@ -386,6 +386,10 @@ static void renderExtraInfo(uint8_t BASE) {
     PrintSmallEx(14, 21, POS_L, C_FILL, "%+d", BK4819_GetAFCValue());
   }
 
+  if (ctx->tx_state.is_active) {
+    PrintSmallEx(14, 27, POS_L, C_FILL, "%u", BK4819_GetAfTxRx());
+  }
+
   if (gSettings.iAmPro) {
     PrintSmallEx(LCD_WIDTH - 1, BASE + 8 + 6, POS_R, C_FILL, "PRO");
   }

@@ -53,7 +53,7 @@ const char *KA_NAMES[] = {
     // TX / PTT
     [KA_TX]   = "TX",
     [KA_PTT]  = "PTT",
-    [KA_VOX]  = "VOX",
+    [KA_VOX]  = "VOX (n/a)",
     [KA_MONI] = "Monitor",
 
     // Отображение
