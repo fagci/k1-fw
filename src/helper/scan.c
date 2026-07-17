@@ -224,8 +224,13 @@ static void HandleStateTuning(void) {
   Reg30_SetPllVco(true);
 
   // precise=false: только импульс ENABLE_VCO_CALIB вместо полного сброса
-  // REG_30, без паузы на полную рекалибровку
-  RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, false, false);
+  // REG_30, без паузы на полную рекалибровку. Но сразу после LISTENING
+  // (особенно после долгого висения на сильном сигнале) DSP-тракт мог
+  // "прилипнуть" к нему — соседняя частота на первом замере иногда читается
+  // как открытая. scan.precise выставляется один раз при выходе из
+  // LISTENING и форсирует полный сброс REG_30 именно для этого шага.
+  RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, scan.precise, false);
+  scan.precise = false;
   RADIO_SetParam(ctx, PARAM_FREQUENCY, scan.currentF, false);
   RADIO_ApplySettings(ctx);
 
@@ -325,6 +330,7 @@ static void HandleStateListening(void) {
     RADIO_MuteAudioNow(gRadioState);
     scan.currentF += scan.stepF;
     sqClosedAt = 0;
+    scan.precise = true; // см. комментарий в HandleStateTuning
     ChangeState(SCAN_STATE_TUNING);
     gRedrawScreen = true;
   }
@@ -473,6 +479,7 @@ void SCAN_Next(void) {
   vfo->is_open = false;
   scan.currentF += scan.stepF;
   RADIO_SwitchAudioToVFO(gRadioState, gRadioState->active_vfo_index);
+  scan.precise = true; // см. комментарий в HandleStateTuning
   ChangeState(SCAN_STATE_TUNING);
 }
 
