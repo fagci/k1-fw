@@ -25,6 +25,24 @@
 
 static uint32_t preScanF = 0;
 
+// GetSqlPreset() читает файл пресета с флеша (Storage_Load) при каждом
+// вызове — недопустимо дорого на каждый шаг свипа. Уровень шумодава и
+// VHF/UHF-диапазон меняются редко, поэтому кэшируем результат и
+// перечитываем только когда один из них реально изменился.
+static SquelchPreset cachedSq;
+static uint8_t cachedSqLevel = 0xFF; // заведомо невалидный — форсирует первую загрузку
+static bool cachedSqIsUHF = false;
+
+static SquelchPreset GetSqlPresetCached(uint8_t level, uint32_t freq) {
+  bool isUHF = freq >= SETTINGS_GetFilterBound();
+  if (level != cachedSqLevel || isUHF != cachedSqIsUHF) {
+    cachedSq = GetSqlPreset(level, freq);
+    cachedSqLevel = level;
+    cachedSqIsUHF = isUHF;
+  }
+  return cachedSq;
+}
+
 static ScanContext scan = {
     .state = SCAN_STATE_IDLE,
     .mode = SCAN_MODE_SINGLE,
@@ -230,7 +248,7 @@ static void HandleStateTuning(void) {
 
   // Фаза 1: RSSI уже усажен на канал (см. константы выше), но это дешёвый
   // предфильтр — сам по себе не отличает сигнал от шума/наводки
-  SquelchPreset sq = GetSqlPreset(ctx->squelch.value, scan.currentF);
+  SquelchPreset sq = GetSqlPresetCached(ctx->squelch.value, scan.currentF);
   bool candidate = scan.measurement.rssi >= sq.ro;
   bool isOpen = false;
 
@@ -426,6 +444,7 @@ void SCAN_Init(void) {
   scan.scanCycles = 0;
   scan.currentCps = 0;
   scan.radioTimer = Now();
+  cachedSqLevel = 0xFF; // форсируем перечитывание пресета на новой сессии скана
 
   ApplyBandSettings();
   vfo->is_open = false;
