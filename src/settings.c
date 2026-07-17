@@ -94,6 +94,7 @@ Settings gSettings = {
     .af_rx_3k = 4,
     .af_tx_300 = 4,
     .af_tx_3k = 4,
+    .scanDelayUs = 1800,
 };
 
 const uint32_t EEPROM_SIZES[6] = {
@@ -236,6 +237,8 @@ uint32_t SETTINGS_GetValue(Setting s) {
     return gSettings.af_tx_300;
   case SETTING_AF_TX_3K:
     return gSettings.af_tx_3k;
+  case SETTING_SCANDELAY:
+    return gSettings.scanDelayUs;
   }
   return 0;
 }
@@ -390,6 +393,9 @@ void SETTINGS_SetValue(Setting s, uint32_t v) {
     break;
   case SETTING_AF_TX_3K:
     gSettings.af_tx_3k = v;
+    break;
+  case SETTING_SCANDELAY:
+    gSettings.scanDelayUs = v;
     break;
   case SETTING_COUNT:
     return;

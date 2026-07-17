@@ -407,7 +407,7 @@ static void renderLootInfo(void) {
   if (!gLastActiveLoot)
     return;
 
-  const uint32_t ago = (Now() - gLastActiveLoot->lastTimeOpen) / 1000;
+  const uint32_t ago = LOOT_SecondsAgo(gLastActiveLoot);
 
   if (gLastActiveLoot->code != 255) {
     if (gLastActiveLoot->isCd) {
