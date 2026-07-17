@@ -96,7 +96,10 @@ SQL GetSql(uint8_t level) {
   }
 
   // sq.ro = ConvertDomain(level, 0, 10, 10, 180);
-  sq.ro = ConvertDomain(level, 0, 10, 60, 180);
+  // Понижен нижний край с 60 до 50 — при level=2 (реальный жалобный кейс:
+  // rssi=80) порог был 84, т.е. чуть строже наблюдаемого сигнала. Теперь
+  // ~76, с запасом на SQ_HYSTERESIS(4).
+  sq.ro = ConvertDomain(level, 0, 10, 50, 180);
   sq.no = ConvertDomain(level, 0, 10, 64, 12);
   sq.go = ConvertDomain(level, 0, 10, 100, 0); // was 32, 6
 

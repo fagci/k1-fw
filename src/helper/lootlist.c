@@ -397,3 +397,35 @@ bool LOOT_LoadFromFile(const char *filename) {
 bool LOOT_Save(void) { return LOOT_SaveToFile(LOOT_DEFAULT_FILE); }
 
 bool LOOT_Load(void) { return LOOT_LoadFromFile(LOOT_DEFAULT_FILE); }
+
+bool LOOT_MergeBlacklistFromFile(const char *filename) {
+  LootFileHeader hdr = {0};
+
+  if (!Storage_Load(filename, 0, &hdr, sizeof(hdr))) {
+    return false;
+  }
+  if (hdr.magic != LOOT_FILE_MAGIC || hdr.version != LOOT_FILE_VERSION ||
+      hdr.loot_size != sizeof(Loot) || hdr.count > LOOT_SIZE_MAX) {
+    return false;
+  }
+
+  for (uint16_t i = 0; i < hdr.count; ++i) {
+    Loot tmp;
+    if (!Storage_Load(filename, 1 + i, &tmp, sizeof(Loot)))
+      continue;
+    if (!tmp.blacklist)
+      continue; // тащим только чёрный список, а не весь сохранённый лут
+
+    Loot *item = LOOT_AddEx(tmp.f, true); // reuse — не дублируем существующую запись
+    if (item) {
+      item->blacklist = true;
+      item->whitelist = false;
+      item->open = false;
+    }
+  }
+  return true;
+}
+
+bool LOOT_MergeBlacklist(void) {
+  return LOOT_MergeBlacklistFromFile(LOOT_DEFAULT_FILE);
+}
