@@ -14,6 +14,14 @@
 #define SOFT_SQ_HEADROOM 25 // % смягчения аппаратных порогов
 #define STE_DEBOUNCE_MS 250 // окно подавления STE-хвоста
 
+// При precise=false (нет полного сброса REG_30) DSP может ещё "помнить"
+// предыдущую, более сильную частоту. Если noise заметно ниже предыдущего
+// замера — верный признак, что измерение ещё не устоялось. Добираем
+// время замера до ~4мс вместо базовых 1800мкс (2200 + 1800 = 4000).
+#define NOISE_SETTLE_EXTRA_US 2200
+#define NOISE_DROP_THRESHOLD_PCT 10
+
+static uint8_t prevNoise = 0;
 static uint32_t preScanF = 0;
 
 static ScanContext scan = {
@@ -204,8 +212,20 @@ static void HandleStateTuning(void) {
 
   SYSTICK_DelayUs(scan.warmupUs);
 
+  uint8_t noise = BK4819_GetNoise();
+
+  // Заметное падение noise относительно предыдущего замера — добираем
+  // время устаканивания до ~4мс и перемеряем
+  if (prevNoise && noise < prevNoise &&
+      (uint32_t)(prevNoise - noise) * 100 / prevNoise >=
+          NOISE_DROP_THRESHOLD_PCT) {
+    SYSTICK_DelayUs(NOISE_SETTLE_EXTRA_US);
+    noise = BK4819_GetNoise();
+  }
+  prevNoise = noise;
+
   scan.measurement.rssi = RADIO_GetRSSI(ctx);
-  scan.measurement.noise = BK4819_GetNoise();
+  scan.measurement.noise = noise;
   scan.measurement.glitch = BK4819_GetGlitch();
   scan.measurement.f = scan.currentF;
 
@@ -219,21 +239,9 @@ static void HandleStateTuning(void) {
     return;
   }
 
-  // Решение принимает аппаратный шумодав (REG_0C) в HandleStateChecking —
-  // здесь только собираем RSSI/noise/glitch для спектра и передаём дальше
-  ChangeState(SCAN_STATE_CHECKING);
-}
-
-#define STE_CONFIRM_MS 4 // устаканивание перед чтением регистра шумодава
-
-static void HandleStateChecking(void) {
-  if (ElapsedMs() < STE_CONFIRM_MS)
-    return;
-
   bool isOpen = BK4819_IsSquelchOpen();
   scan.isOpen = isOpen;
   scan.measurement.open = isOpen;
-  scan.measurement.f = scan.currentF;
   LOOT_Update(&scan.measurement);
 
   if (isOpen) {
@@ -251,7 +259,6 @@ static void HandleStateChecking(void) {
   } else {
     Reg30_SetPllVco(false);
     scan.currentF += scan.stepF;
-    ChangeState(SCAN_STATE_TUNING);
   }
 }
 
@@ -336,7 +343,8 @@ void SCAN_Check(void) {
     HandleStateTuning();
     break;
   case SCAN_STATE_CHECKING:
-    HandleStateChecking();
+    // Больше не используется: проверка шумодава теперь встроена прямо в
+    // HandleStateTuning сразу после замера — см. NOISE_SETTLE_EXTRA_US.
     break;
   case SCAN_STATE_LISTENING:
     HandleStateListening();
@@ -410,6 +418,7 @@ void SCAN_Init(void) {
   scan.scanCycles = 0;
   scan.currentCps = 0;
   scan.radioTimer = Now();
+  prevNoise = 0;
 
   ApplyBandSettings();
   vfo->is_open = false;
