@@ -473,7 +473,11 @@ static bool setParamBK4819(VFOContext *ctx, ParamType p) {
     BK4819_SetAGC(ctx->modulation != MOD_AM, ctx->gain);
     return true;
   case PARAM_BANDWIDTH:
-    BK4819_SetFilterBandwidth(ctx->bandwidth);
+    // WFM пишет весь REG_43 сама (BK4819_SetModulation), полосой не
+    // управляет — если применить здесь, затрёт её конфиг первым же
+    // независимым изменением PARAM_BANDWIDTH (напр. клавишей BW).
+    if (ctx->modulation != MOD_WFM)
+      BK4819_SetFilterBandwidth(ctx->bandwidth);
     return true;
   case PARAM_SQUELCH_VALUE:
     BK4819_Squelch(ctx->squelch.value, ctx->frequency, gSettings.sqlOpenTime,
@@ -1464,6 +1468,11 @@ void RADIO_StopTX(VFOContext *ctx) {
   RADIO_SetupToneDetection(ctx);
   BK4819_SelectFilter(ctx->frequency);
   BK4819_TuneTo(ctx->frequency, true);
+
+  // BK4819_PrepareTransmit()/ExitBypass() force REG_7E to auto-AGC on every
+  // TX regardless of the RX gain the user configured — restore it now that
+  // RX has resumed.
+  BK4819_SetAGC(ctx->modulation != MOD_AM, ctx->gain);
 
   // Restore FSK mode if it was active before TX
   if (gCurrentApp != APP_MESSENGER) {
