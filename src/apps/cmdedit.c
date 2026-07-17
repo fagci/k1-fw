@@ -226,6 +226,23 @@ static void DuplicateCommand(uint16_t index) {
   cmdMenu.num_items = gEditCtx.totalCommands;
 }
 
+// Курсор (cmdMenu.i) переставляется на новую позицию команды, а не
+// остаётся на старом индексе — иначе после перемещения выделена
+// оказывается соседняя, чужая команда
+static void MoveCommand(uint16_t index, bool up) {
+  if (up && index == 0)
+    return;
+  if (!up && (index >= gEditCtx.totalCommands - 1))
+    return;
+
+  uint16_t other = up ? index - 1 : index + 1;
+  SCMD_Command tmp = gEditCtx.commands[index];
+  gEditCtx.commands[index] = gEditCtx.commands[other];
+  gEditCtx.commands[other] = tmp;
+  gEditCtx.modified = true;
+  cmdMenu.i = other;
+}
+
 // ============================================================================
 // Callbacks для FINPUT
 // ============================================================================
@@ -559,6 +576,12 @@ static bool listModeAction(const uint16_t index, KEY_Code_t key,
       return true;
     case KEY_0:
       DeleteCommand(index);
+      return true;
+    case KEY_SIDE1:
+      MoveCommand(index, true);
+      return true;
+    case KEY_SIDE2:
+      MoveCommand(index, false);
       return true;
     default:
       break;

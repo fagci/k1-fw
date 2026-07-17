@@ -136,6 +136,11 @@ static void RenderCommandInfo(void) {
 // =============================
 
 void CMDSCAN_init(void) {
+  // Запоминаем частоту VFO до входа в командный скан — как в SCANER_init,
+  // иначе она молча перетирается тем, где скан в итоге остановился
+  // (см. SCAN_SaveFrequency/RestoreFrequency и SCANER_init/_deinit)
+  SCAN_SaveFrequency();
+
   // Переключаемся в режим VFO для командного сканирования
   SCAN_SetMode(SCAN_MODE_SINGLE);
 
@@ -149,8 +154,14 @@ void CMDSCAN_init(void) {
 }
 
 void CMDSCAN_deinit(void) {
+  // Восстанавливаем частоту VFO (если её никто не перестроил явно) до
+  // того, как APPS_deinit()/RADIO_SaveAllVFOs сохранят её во flash —
+  // см. комментарий в SCANER_deinit
+  SCAN_RestoreFrequency();
+
   // Возвращаем обычный режим через SCAN API
   SCAN_SetCommandMode(false);
+  SCAN_SetMode(SCAN_MODE_SINGLE);
   cmdState.isActive = false;
 }
 
@@ -278,7 +289,7 @@ void CMDSCAN_render(void) {
 
   if (cmd) {
     PrintSmallEx(LCD_XCENTER, 12 + 8, POS_C, C_FILL, "Cmd: %d/%d %s .%lu",
-                 cmdState.cmdIndex, SCAN_GetCommandCount(),
+                 cmdState.cmdIndex + 1, SCAN_GetCommandCount(),
                  SCMD_NAMES_SHORT[cmd->type], cmdState.execCount);
   }
 
