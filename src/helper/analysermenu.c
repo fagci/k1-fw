@@ -7,7 +7,6 @@
 #include "../helper/menu.h"
 #include "../misc.h"
 #include "../ui/graphics.h"
-#include "../ui/spectrum.h"
 
 // ---------------------------------------------------------------------------
 
@@ -164,8 +163,16 @@ static void initMenu(void) {
 
   analyserMenu.num_items = REG_COUNT;
   analyserMenu.render_item = renderAnalyserMenuItem;
-  analyserMenu.y = SPECTRUM_Y;
-  analyserMenu.height = REG_COUNT * analyserMenu.itemHeight;
+  // Раньше .y бралось из SPECTRUM_Y — общей переменной, которую каждое
+  // приложение (Analyser, VFO1 со своим графиком) выставляет под себя.
+  // Это меню открывается из обоих, и позиция "уползала" в зависимости от
+  // того, что SPECTRUM_Y значило в момент открытия. Фиксируем позицию.
+  analyserMenu.y = MENU_Y;
+  // height было = REG_COUNT * itemHeight, т.е. под ВСЕ пункты сразу,
+  // независимо от того, помещаются ли они на экран — при .y от VFO1 и
+  // /или росте REG_COUNT строки просто уезжали за нижний край. Отдаём
+  // под меню весь остаток экрана — тогда работает штатный скролл Menu.
+  analyserMenu.height = LCD_HEIGHT - analyserMenu.y;
   MENU_Init(&analyserMenu);
 }
 
