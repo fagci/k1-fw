@@ -11,8 +11,6 @@
 #include "apps.h"
 // #include "finput.h"
 
-static uint8_t DEAD_BUF[] = {0xDE, 0xAD};
-
 static void getValS(const MenuItem *item, char *buf, uint8_t buf_size) {
   sprintf(buf, "%s", SETTINGS_GetValueString(item->setting));
 }
@@ -23,16 +21,16 @@ static void updateValS(const MenuItem *item, bool up) {
   // Apply EQ settings immediately
   switch (item->setting) {
   case SETTING_AF_RX_300:
-    BK4819_SetAFResponse(false, false, gSettings.af_rx_300 - 4);
+    RADIO_ApplyAFResponse(false, false);
     break;
   case SETTING_AF_RX_3K:
-    BK4819_SetAFResponse(false, true, gSettings.af_rx_3k - 4);
+    RADIO_ApplyAFResponse(false, true);
     break;
   case SETTING_AF_TX_300:
-    BK4819_SetAFResponse(true, false, gSettings.af_tx_300 - 4);
+    RADIO_ApplyAFResponse(true, false);
     break;
   case SETTING_AF_TX_3K:
-    BK4819_SetAFResponse(true, true, gSettings.af_tx_3k - 4);
+    RADIO_ApplyAFResponse(true, true);
     break;
   default:
     break;

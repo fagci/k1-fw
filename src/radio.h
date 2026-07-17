@@ -55,6 +55,11 @@ void RADIO_CheckAndSaveVFO(RadioState *state);
 // Применение настроек
 void RADIO_ApplySettings(VFOContext *ctx);
 
+// Применение одного из 4 полей AF response (gSettings.af_rx_300/af_rx_3k/
+// af_tx_300/af_tx_3k) к железу — единая точка для radio.c/system.c/settings.c
+void RADIO_ApplyAFResponse(bool tx, bool is3k);
+void RADIO_ApplyAllAFResponse(void);
+
 // Проверка поддержки параметра в текущем диапазоне
 bool RADIO_IsParamValid(VFOContext *ctx, ParamType param, uint32_t value);
 

@@ -277,22 +277,9 @@ void CMDSCAN_render(void) {
   PrintSmallEx(LCD_XCENTER, 12, POS_C, C_FILL, "%s", filename);
 
   if (cmd) {
-    const char *typeNames[] = {
-        [SCMD_NOP] = "--",     // NOP
-        [SCMD_CHANNEL] = "CH", // Одиночный канал
-        [SCMD_RANGE] = "RNG",  // Диапазон частот
-        [SCMD_JUMP] = "JMP",   // Безусловный переход
-        [SCMD_CJUMP] = "CJ", // Условный переход (если сигнал)
-        [SCMD_PAUSE] = "PAU",    // Пауза
-        [SCMD_CALL] = "CAL",     // Вызов подпрограммы
-        [SCMD_RETURN] = "RET",   // Возврат из подпрограммы
-        [SCMD_MARKER] = "MRK",   // Метка для переходов
-        [SCMD_SETPRIO] = "PRIO", // Установка приоритета
-        [SCMD_SETMODE] = "MOD",  // Установка режима
-    };
     PrintSmallEx(LCD_XCENTER, 12 + 8, POS_C, C_FILL, "Cmd: %d/%d %s .%lu",
                  cmdState.cmdIndex, SCAN_GetCommandCount(),
-                 typeNames[cmd->type], cmdState.execCount);
+                 SCMD_NAMES_SHORT[cmd->type], cmdState.execCount);
   }
 
   mhzToS(freqBuf, vfo->msm.f);

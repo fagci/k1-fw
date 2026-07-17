@@ -135,10 +135,7 @@ static void loadSettingsOrReset(void) {
   STORAGE_LOAD("Settings.set", 0, &gSettings);
 
   // Apply global EQ settings to BK4819
-  BK4819_SetAFResponse(false, false, gSettings.af_rx_300 - 4);
-  BK4819_SetAFResponse(false, true, gSettings.af_rx_3k - 4);
-  BK4819_SetAFResponse(true, false, gSettings.af_tx_300 - 4);
-  BK4819_SetAFResponse(true, true, gSettings.af_tx_3k - 4);
+  RADIO_ApplyAllAFResponse();
 
   if (!lfs_file_exists("Bands.bnd")) {
     STORAGE_INIT("Bands.bnd", Band, MAX_BANDS);

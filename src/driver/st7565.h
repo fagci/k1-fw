@@ -12,7 +12,7 @@
 #define LCD_YCENTER 32
 
 extern uint8_t gFrameBuffer[FRAME_LINES][LCD_WIDTH];
-static uint32_t gLastRender;
+extern uint32_t gLastRender;
 extern bool gRedrawScreen;
 extern bool gLineChanged[FRAME_LINES]; // выставляется в graphics.c примитивами
 // Флаг для подавления обновлений дисплея (например, при открытом шумодаве в FC)

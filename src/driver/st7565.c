@@ -19,6 +19,7 @@ uint8_t gFrameBuffer[FRAME_LINES][LCD_WIDTH];
 bool gLineChanged[FRAME_LINES]; // выставляется в graphics.c примитивами
 bool gRedrawScreen = true;
 bool gSuppressDisplayUpdates = false; // подавление обновлей дисплея
+uint32_t gLastRender;
 
 // ---------------------------------------------------------------------------
 // SPI

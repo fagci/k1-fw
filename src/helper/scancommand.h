@@ -39,6 +39,7 @@ static const char *SCMD_NAMES[SCMD_COUNT] = {
 };
 
 static const char *SCMD_NAMES_SHORT[SCMD_COUNT] = {
+    [SCMD_NOP] = "--",     // NOP
     [SCMD_CHANNEL] = "CH", // Одиночный канал
     [SCMD_RANGE] = "RNG",  // Диапазон частот
     [SCMD_JUMP] = "JMP",   // Безусловный переход
