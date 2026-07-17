@@ -240,11 +240,16 @@ static bool action(const uint16_t index, KEY_Code_t key, Key_State_t state) {
         STATUSLINE_SetText("Save failed!");
       }
       return true;
-    /* case KEY_STAR:
-      // TODO: select any of SL
-      CHANNELS_LoadBlacklistToLoot();
-      initMenu();
-      return true; */
+    case KEY_STAR:
+      // Подмешивает в текущий лут только blacklist-записи из сохранённого
+      // файла (LOOT_Save/долгий F), не трогая уже найденное за сессию
+      if (LOOT_MergeBlacklist()) {
+        STATUSLINE_SetText("Blacklist loaded");
+        initMenu();
+      } else {
+        STATUSLINE_SetText("Load failed!");
+      }
+      return true;
     default:
       break;
     }

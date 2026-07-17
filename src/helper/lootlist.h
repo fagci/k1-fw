@@ -47,6 +47,12 @@ bool LOOT_Load(void);
 bool LOOT_SaveToFile(const char *filename);
 bool LOOT_LoadFromFile(const char *filename);
 
+// В отличие от LOOT_Load (полная замена текущего лута), сливает в текущий
+// список только записи с blacklist=true из файла — не трогая уже
+// накопленные за сессию находки.
+bool LOOT_MergeBlacklist(void);
+bool LOOT_MergeBlacklistFromFile(const char *filename);
+
 void LOOTLIST_init(void);
 void LOOTLIST_update(void);
 void LOOTLIST_render(void);
