@@ -113,6 +113,15 @@ void LOOT_Clear(void) {
 
 uint16_t LOOT_Size(void) { return lootIndex + 1; }
 
+uint32_t LOOT_SecondsAgo(const Loot *loot) {
+  // lastTimeOpen хранится в секундах (Now()/1000), а Now() — в мс, поэтому
+  // сравнивать их напрямую нельзя: разница окажется задавлена величиной
+  // Now() и будет почти одинаковой для всех записей. Сначала переводим
+  // Now() в секунды, uint16_t-арифметика корректно оборачивается через ~18ч.
+  const uint16_t now_s = (uint16_t)(Now() / 1000);
+  return (uint16_t)(now_s - loot->lastTimeOpen);
+}
+
 void LOOT_Standby(void) {
   for (uint16_t i = 0; i < LOOT_Size(); ++i) {
     Loot *p = &loot[i];

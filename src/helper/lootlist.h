@@ -25,6 +25,7 @@ Loot *LOOT_AddEx(uint32_t f, bool reuse);
 void LOOT_Remove(uint16_t i);
 void LOOT_Clear(void);
 uint16_t LOOT_Size(void);
+uint32_t LOOT_SecondsAgo(const Loot *loot);
 void LOOT_Standby(void);
 
 bool LOOT_SortByLastOpenTime(const Loot *a, const Loot *b);

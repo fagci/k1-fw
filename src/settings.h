@@ -58,6 +58,8 @@ typedef enum {
   SETTING_AF_TX_300,
   SETTING_AF_TX_3K,
 
+  SETTING_SCANDELAY,
+
   SETTING_COUNT,
 } Setting;
 
@@ -193,6 +195,8 @@ typedef struct {
 
   uint8_t activeVFO : 2;
   bool skipGarbageFrequencies : 1;
+
+  uint16_t scanDelayUs; // задержка после перестройки частоты при сканировании
 
 } __attribute__((packed)) Settings;
 

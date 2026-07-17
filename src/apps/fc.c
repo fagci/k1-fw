@@ -325,7 +325,7 @@ void FC_render(void) {
       PrintSmallEx(LCD_WIDTH, BASE + 8 + 6, POS_R, C_FILL, "%s", string);
     }
 
-    const uint32_t ago = (Now() - gLastActiveLoot->lastTimeOpen) / 1000;
+    const uint32_t ago = LOOT_SecondsAgo(gLastActiveLoot);
     if (ago) {
       PrintSmallEx(0, BASE + 8, POS_L, C_FILL, "%u:%02u", ago / 60, ago % 60);
     }

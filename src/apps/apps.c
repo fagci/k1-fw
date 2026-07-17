@@ -151,6 +151,11 @@ static void APPS_runInternal(AppType_t app) {
   if (appsStack[stackIndex] == app)
     return;
 
+  // Пока gRadioState в памяти уже актуален (принадлежал предыдущему
+  // radio-приложению), reload из flash сразу после save — чистый
+  // no-op ценой долгого I/O по всем VFO. Пропускаем его.
+  bool wasRadioStateFresh = gRadioState && apps[gCurrentApp].needsRadioState;
+
   APPS_deinit();
   pushApp(app);
   gCurrentApp = app;
@@ -167,8 +172,11 @@ static void APPS_runInternal(AppType_t app) {
       KEYMAP_Load();
       RADIO_ToggleMultiwatch(gRadioState, gSettings.mWatch);
     }
-    // Каждый раз: загружаем актуальное состояние из хранилища
-    RADIO_LoadVFOs(gRadioState);
+    if (!wasRadioStateFresh) {
+      // Загружаем актуальное состояние из хранилища — оно могло
+      // измениться извне (редактор каналов, файлы и т.п.)
+      RADIO_LoadVFOs(gRadioState);
+    }
   }
 
   APPS_init(app);
@@ -180,18 +188,21 @@ bool APPS_exit(void) {
   if (stackIndex == 0) {
     return false;
   }
-  
+
+  bool wasRadioStateFresh = gRadioState && apps[gCurrentApp].needsRadioState;
+
   // Save VFO state before exiting current app
-  if (gRadioState && apps[gCurrentApp].needsRadioState) {
+  if (wasRadioStateFresh) {
     RADIO_SaveAllVFOs(gRadioState);
   }
-  
+
   APPS_deinit();
   AppType_t app = popApp();
   gCurrentApp = APPS_Peek();
 
-  // Load VFO state for the app we're returning to
-  if (apps[gCurrentApp].needsRadioState && gRadioState) {
+  // Load VFO state for the app we're returning to, если оно ещё не
+  // актуально в памяти (см. комментарий в APPS_runInternal)
+  if (apps[gCurrentApp].needsRadioState && gRadioState && !wasRadioStateFresh) {
     RADIO_LoadVFOs(gRadioState);
   }
 

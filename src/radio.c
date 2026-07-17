@@ -484,6 +484,10 @@ static bool setParamBK4819(VFOContext *ctx, ParamType p) {
     return true;
   case PARAM_MODULATION:
     BK4819_SetModulation(ctx->modulation);
+    // SetModulation безусловно снимает AFC_DIS для не-SSB режимов (REG_73
+    // бит 4 — тот же бит, что использует SetAFC), поэтому включает AFC
+    // заново независимо от ctx->afc. Восстанавливаем реальное состояние.
+    BK4819_SetAFC(RADIO_IsSSB(ctx) ? 0 : ctx->afc);
     return true;
   case PARAM_FREQUENCY:
     if (ctx->filter == FILTER_AUTO) {

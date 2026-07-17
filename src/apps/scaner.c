@@ -72,7 +72,7 @@ void SCANER_init(void) {
   BANDS_RangeClear();
   BANDS_RangePush(gCurrentBand);
 
-  SCAN_SetDelay(1800);
+  SCAN_SetDelay(gSettings.scanDelayUs);
 
   SCAN_SetMode(SCAN_MODE_FREQUENCY);
   SCAN_Init();
@@ -139,6 +139,7 @@ static bool handleRepeatableKeys(KEY_Code_t key) {
   case KEY_7:
     SCAN_SetDelay(
         AdjustU(SCAN_GetDelay(), 0, 10000, key == KEY_1 ? 100 : -100));
+    SETTINGS_SetValue(SETTING_SCANDELAY, SCAN_GetDelay());
     return true;
 
   case KEY_3:
@@ -299,7 +300,7 @@ static void renderLootInfo(uint8_t y) {
 
   UI_DrawLoot(gLastActiveLoot, LCD_XCENTER, y, POS_C);
 
-  const uint32_t ago = (Now() - gLastActiveLoot->lastTimeOpen) / 1000;
+  const uint32_t ago = LOOT_SecondsAgo(gLastActiveLoot);
   if (ago) {
     PrintSmallEx(LCD_WIDTH, y, POS_R, C_FILL, "%u:%02u", ago / 60, ago % 60);
   }
@@ -326,7 +327,7 @@ void SCANER_render(void) {
 
     for (int16_t i = LOOT_Size() - 1; i >= 0 && cnt < 4; --i) {
       Loot *v = LOOT_Item(i);
-      const uint32_t ago = (Now() - v->lastTimeOpen) / 1000;
+      const uint32_t ago = LOOT_SecondsAgo(v);
       mhzToS(String, v->f);
 
       PrintMediumEx(0, y, POS_L, C_FILL, "%s %02u:%02u", String, ago / 60,
