@@ -210,11 +210,11 @@ bool CMDSCAN_key(KEY_Code_t key, Key_State_t state) {
         return true; */
 
     case KEY_SIDE1:
-      LOOT_BlacklistLast();
+      SCAN_NextBlacklist();
       return true;
 
     case KEY_SIDE2:
-      LOOT_WhitelistLast();
+      SCAN_NextWhitelist();
       return true;
 
     case KEY_STAR:

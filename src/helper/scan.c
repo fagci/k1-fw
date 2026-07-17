@@ -419,6 +419,21 @@ void SCAN_RestoreFrequency(void) {
   RADIO_ApplySettings(ctx);
 }
 
+// Запоминает, где именно в диапазоне остановился свип, чтобы при следующем
+// входе в сканер продолжить оттуда, а не с начала диапазона. Вызывать до
+// SCAN_RestoreFrequency()/SCAN_SetMode(SCAN_MODE_SINGLE), которые меняют
+// scan.currentF.
+static uint32_t lastScanF = 0;
+void SCAN_SaveScanPosition(void) { lastScanF = scan.currentF; }
+
+// Вызывать после SCAN_SetMode(SCAN_MODE_FREQUENCY)/SCAN_Init — если
+// запомненная позиция всё ещё попадает в (возможно новый) диапазон скана,
+// продолжаем оттуда вместо scan.startF.
+void SCAN_ResumeFromLastPosition(void) {
+  if (lastScanF >= scan.startF && lastScanF <= scan.endF)
+    scan.currentF = lastScanF;
+}
+
 void SCAN_Init(void) {
   scan.lastCpsTime = Now();
   scan.scanCycles = 0;

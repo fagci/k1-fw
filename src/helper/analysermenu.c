@@ -41,6 +41,7 @@ static const RegDesc regDescs[] = {
     {"DSP V", 0x37, 12, 3, 7, 1},           // REG_37<14:12> dsp voltage
     {"GltchBW", 0x47, 1, 7, 0b1111111, 1},  //
     {"Compand", 0x31, 3, 1, 1, 1}, // enabling raises TX gain, drop MIC to compensate
+    {"AVC", 0x4B, 5, 1, 1, 1}, // Automatic Volume Control (Rx)
 };
 
 #define REG_COUNT ARRAY_SIZE(regDescs)

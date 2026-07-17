@@ -77,6 +77,7 @@ void SCANER_init(void) {
   SCAN_SaveFrequency();
   SCAN_SetMode(SCAN_MODE_FREQUENCY);
   SCAN_Init();
+  SCAN_ResumeFromLastPosition();
 }
 
 ScanState oldScanState;
@@ -364,6 +365,10 @@ void SCANER_render(void) {
 }
 
 void SCANER_deinit(void) {
+  // Запоминаем позицию свипа до RestoreFrequency/SetMode(SINGLE) — они
+  // меняют scan.currentF на частоту VFO.
+  SCAN_SaveScanPosition();
+
   // APPS_deinit() (и, значит, этот вызов) выполняется до RADIO_SaveAllVFOs
   // при переключении приложений, поэтому восстановленная частота попадает
   // в сохранение, а не перезаписывается им.

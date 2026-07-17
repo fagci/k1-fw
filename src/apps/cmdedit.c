@@ -259,23 +259,68 @@ static void cbSetGoto(uint32_t offset, uint32_t _) {
 // Редактирование поля
 // ============================================================================
 
+// Сбрасывает поля команды при смене типа: иначе значения от предыдущего
+// типа остаются в структуре (напр. start/end от RANGE после переключения
+// на PAUSE) — мусор в файле и путаница при последующем переключении назад.
+static void SetCommandType(SCMD_Command *cmd, uint8_t newType) {
+  cmd->type = newType;
+  cmd->start = 0;
+  cmd->end = 0;
+  cmd->step = 0;
+  cmd->dwell_ms = 0;
+  cmd->goto_offset = 0;
+  cmd->priority = 0;
+  cmd->flags = 0;
+  gEditCtx.editField = 0;
+  gEditCtx.modified = true;
+}
+
+// Поле — простой переключатель (тип/приоритет/флаги), который крутится
+// клавишами STAR/F, а не открывает FINPUT. Возвращает true, если поле
+// было такого рода (и уже обработано).
+static bool CycleField(SCMD_Command *cmd, uint8_t field, bool up) {
+  if (field == 0) {
+    SetCommandType(cmd, up ? (cmd->type + 1) % SCMD_COUNT
+                           : (cmd->type + SCMD_COUNT - 1) % SCMD_COUNT);
+    return true;
+  }
+
+  bool isPriority = (cmd->type == SCMD_CHANNEL && field == 3) ||
+                    (cmd->type == SCMD_RANGE && field == 4);
+  bool isFlags = (cmd->type == SCMD_CHANNEL && field == 4) ||
+                 (cmd->type == SCMD_RANGE && field == 5);
+
+  if (isPriority) {
+    cmd->priority = up ? (cmd->priority + 1) % 10 : (cmd->priority + 9) % 10;
+    gEditCtx.modified = true;
+    return true;
+  }
+  if (isFlags) {
+    cmd->flags ^= SCMD_FLAG_AUTO_WHITELIST;
+    gEditCtx.modified = true;
+    return true;
+  }
+  return false;
+}
+
 static void EditCommandField(uint16_t index, uint8_t field) {
   SCMD_Command *cmd = &gEditCtx.commands[index];
 
-  if (field == 0) {
-    cmd->type = (cmd->type + 1) % SCMD_COUNT;
-    gEditCtx.editField = 0;
-    gEditCtx.modified = true;
+  // Простые переключатели (тип/приоритет/флаги) — через MENU тоже
+  // работают, как альтернатива STAR/F
+  if (CycleField(cmd, field, true))
     return;
-  }
 
+  // FINPUT всегда открывается пустым, а не с текущим значением — иначе
+  // каждый раз приходится стирать старое число перед вводом нового (как
+  // и везде в прошивке, см. scaner.c setRange)
   switch (cmd->type) {
   case SCMD_CHANNEL:
     switch (field) {
     case 1:
       gFInputCallback = cbSetFreq;
       FINPUT_setup(0, BK4819_F_MAX, UNIT_MHZ, false);
-      gFInputValue1 = cmd->start;
+      gFInputValue1 = 0;
       gFInputValue2 = 0;
       FINPUT_init();
       gFInputActive = true;
@@ -283,17 +328,9 @@ static void EditCommandField(uint16_t index, uint8_t field) {
     case 2:
       gFInputCallback = cbSetDwell;
       FINPUT_setup(0, 60000, UNIT_MS, false);
-      gFInputValue1 = cmd->dwell_ms;
+      gFInputValue1 = 0;
       FINPUT_init();
       gFInputActive = true;
-      break;
-    case 3:
-      cmd->priority = (cmd->priority + 1) % 10;
-      gEditCtx.modified = true;
-      break;
-    case 4:
-      cmd->flags ^= SCMD_FLAG_AUTO_WHITELIST;
-      gEditCtx.modified = true;
       break;
     }
     break;
@@ -303,32 +340,24 @@ static void EditCommandField(uint16_t index, uint8_t field) {
     case 1: // range: start+end вместе, как в scaner.c setRange
       gFInputCallback = cbSetFreq;
       FINPUT_setup(0, BK4819_F_MAX, UNIT_MHZ, true);
-      gFInputValue1 = cmd->start;
-      gFInputValue2 = cmd->end;
+      gFInputValue1 = 0;
+      gFInputValue2 = 0;
       FINPUT_init();
       gFInputActive = true;
       break;
     case 2: // step
       gFInputCallback = cbSetStep;
       FINPUT_setup(1, 100000, UNIT_KHZ, false);
-      gFInputValue1 = cmd->step;
+      gFInputValue1 = 0;
       FINPUT_init();
       gFInputActive = true;
       break;
     case 3: // dwell
       gFInputCallback = cbSetDwell;
       FINPUT_setup(0, 60000, UNIT_MS, false);
-      gFInputValue1 = cmd->dwell_ms;
+      gFInputValue1 = 0;
       FINPUT_init();
       gFInputActive = true;
-      break;
-    case 4: // priority
-      cmd->priority = (cmd->priority + 1) % 10;
-      gEditCtx.modified = true;
-      break;
-    case 5: // flags
-      cmd->flags ^= SCMD_FLAG_AUTO_WHITELIST;
-      gEditCtx.modified = true;
       break;
     }
     break;
@@ -338,7 +367,7 @@ static void EditCommandField(uint16_t index, uint8_t field) {
     if (field == 1) {
       gFInputCallback = cbSetGoto;
       FINPUT_setup(0, 65535, UNIT_HZ, false);
-      gFInputValue1 = cmd->goto_offset;
+      gFInputValue1 = 0;
       FINPUT_init();
       gFInputActive = true;
     }
@@ -348,7 +377,7 @@ static void EditCommandField(uint16_t index, uint8_t field) {
     if (field == 1) {
       gFInputCallback = cbSetDwell;
       FINPUT_setup(0, 60000, UNIT_MS, false);
-      gFInputValue1 = cmd->dwell_ms;
+      gFInputValue1 = 0;
       FINPUT_init();
       gFInputActive = true;
     }
@@ -549,6 +578,14 @@ static bool editModeKey(KEY_Code_t key, Key_State_t state) {
 
   SCMD_Command *cmd = &gEditCtx.commands[index];
 
+  // Долгое F — сохранить, как и в списке команд. Короткое F теперь занято
+  // под уменьшение значения (см. ниже), поэтому сохранение только по
+  // долгому нажатию.
+  if (state == KEY_LONG_PRESSED && key == KEY_F) {
+    SaveFile();
+    return true;
+  }
+
   if (state == KEY_RELEASED) {
     switch (key) {
     case KEY_EXIT:
@@ -565,8 +602,11 @@ static bool editModeKey(KEY_Code_t key, Key_State_t state) {
       if (gEditCtx.editField < getMaxField(cmd->type))
         gEditCtx.editField++;
       return true;
+    case KEY_STAR:
+      CycleField(cmd, gEditCtx.editField, true);
+      return true;
     case KEY_F:
-      SaveFile();
+      CycleField(cmd, gEditCtx.editField, false);
       return true;
     default:
       break;
