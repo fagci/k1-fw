@@ -245,7 +245,7 @@ void SCMD_CreateExampleScan(void) {
       {SCMD_JUMP, 0, 0, 0, 0, 0, 0, 0, 0, 0},
   };
 
-  SCMD_CreateFile("/scans/cmd1.bin", cmds, sizeof(cmds) / sizeof(cmds[0]));
+  SCMD_CreateFile("/scans/cmd1.cmd", cmds, sizeof(cmds) / sizeof(cmds[0]));
   Log("[SCMD] Example scan file created");
 }
 
