@@ -74,6 +74,7 @@ void SCANER_init(void) {
 
   SCAN_SetDelay(gSettings.scanDelayUs);
 
+  SCAN_SaveFrequency();
   SCAN_SetMode(SCAN_MODE_FREQUENCY);
   SCAN_Init();
 }
@@ -362,4 +363,10 @@ void SCANER_render(void) {
   REGSMENU_Draw();
 }
 
-void SCANER_deinit(void) {}
+void SCANER_deinit(void) {
+  // APPS_deinit() (и, значит, этот вызов) выполняется до RADIO_SaveAllVFOs
+  // при переключении приложений, поэтому восстановленная частота попадает
+  // в сохранение, а не перезаписывается им.
+  SCAN_RestoreFrequency();
+  SCAN_SetMode(SCAN_MODE_SINGLE);
+}
