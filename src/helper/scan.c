@@ -232,18 +232,22 @@ static void HandleStateTuning(void) {
   // предфильтр — сам по себе не отличает сигнал от шума/наводки
   SquelchPreset sq = GetSqlPreset(ctx->squelch.value, scan.currentF);
   bool candidate = scan.measurement.rssi >= sq.ro;
+  bool isOpen = false;
 
   if (candidate) {
-    // Фаза 2: досиживаем до ~5мс — noise успевает устояться и селективно
-    // отражает попадание сигнала в полосу RF-фильтра. Он и решает.
+    // Фаза 2: досиживаем до ~5мс — тот же критерий, что потом держит
+    // LISTENING (HandleStateListening проверяет тот же аппаратный
+    // регистр через IsSqOpenGated). Если решать иначе (напр. только по
+    // софтовому noise), железо тут же скажет "закрыто" и получим
+    // моментальный открыл-закрыл на каждом ложном кандидате.
     SYSTICK_DelayUs(NOISE_CONFIRM_EXTRA_US);
     scan.measurement.noise = BK4819_GetNoise();
     scan.measurement.glitch = BK4819_GetGlitch();
+    isOpen = BK4819_IsSquelchOpen();
   }
 
   SP_AddPoint(&scan.measurement);
 
-  bool isOpen = candidate && scan.measurement.noise <= sq.no;
   scan.isOpen = isOpen;
   scan.measurement.open = isOpen;
   LOOT_Update(&scan.measurement);
