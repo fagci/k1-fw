@@ -507,16 +507,16 @@ static bool setParamBK4819(VFOContext *ctx, ParamType p) {
     BK4819_SetAFCSpeed(ctx->afc_speed);
     return true;
   case PARAM_AF_RX_300:
-    BK4819_SetAFResponse(false, false, gSettings.af_rx_300 - 4);
+    RADIO_ApplyAFResponse(false, false);
     return true;
   case PARAM_AF_RX_3K:
-    BK4819_SetAFResponse(false, true, gSettings.af_rx_3k - 4);
+    RADIO_ApplyAFResponse(false, true);
     return true;
   case PARAM_AF_TX_300:
-    BK4819_SetAFResponse(true, false, gSettings.af_tx_300 - 4);
+    RADIO_ApplyAFResponse(true, false);
     return true;
   case PARAM_AF_TX_3K:
-    BK4819_SetAFResponse(true, true, gSettings.af_tx_3k - 4);
+    RADIO_ApplyAFResponse(true, true);
     return true;
   case PARAM_XTAL:
     BK4819_XtalSet(ctx->xtal);
@@ -1034,22 +1034,22 @@ void RADIO_SetParam(VFOContext *ctx, ParamType param, uint32_t value,
     break;
   case PARAM_AF_RX_300:
     gSettings.af_rx_300 = value;
-    BK4819_SetAFResponse(false, false, gSettings.af_rx_300 - 4);
+    RADIO_ApplyAFResponse(false, false);
     SETTINGS_MarkDirty(SETTING_AF_RX_300);
     break;
   case PARAM_AF_RX_3K:
     gSettings.af_rx_3k = value;
-    BK4819_SetAFResponse(false, true, gSettings.af_rx_3k - 4);
+    RADIO_ApplyAFResponse(false, true);
     SETTINGS_MarkDirty(SETTING_AF_RX_3K);
     break;
   case PARAM_AF_TX_300:
     gSettings.af_tx_300 = value;
-    BK4819_SetAFResponse(true, false, gSettings.af_tx_300 - 4);
+    RADIO_ApplyAFResponse(true, false);
     SETTINGS_MarkDirty(SETTING_AF_TX_300);
     break;
   case PARAM_AF_TX_3K:
     gSettings.af_tx_3k = value;
-    BK4819_SetAFResponse(true, true, gSettings.af_tx_3k - 4);
+    RADIO_ApplyAFResponse(true, true);
     SETTINGS_MarkDirty(SETTING_AF_TX_3K);
     break;
   case PARAM_DEV:
@@ -1324,6 +1324,19 @@ static spf_ptr setParamForRadio[] = {
     [RADIO_BK1080] = &setParamBK1080,
     [RADIO_SI4732] = &setParamSI4732,
 };
+
+void RADIO_ApplyAFResponse(bool tx, bool is3k) {
+  int8_t v = tx ? (is3k ? gSettings.af_tx_3k : gSettings.af_tx_300)
+                : (is3k ? gSettings.af_rx_3k : gSettings.af_rx_300);
+  BK4819_SetAFResponse(tx, is3k, v - 4);
+}
+
+void RADIO_ApplyAllAFResponse(void) {
+  RADIO_ApplyAFResponse(false, false);
+  RADIO_ApplyAFResponse(false, true);
+  RADIO_ApplyAFResponse(true, false);
+  RADIO_ApplyAFResponse(true, true);
+}
 
 // Применение настроек
 // Параметры, которые не передаются в железо (только в ctx)
