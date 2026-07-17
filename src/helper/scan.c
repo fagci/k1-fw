@@ -33,6 +33,16 @@ static uint32_t preScanF = 0;
 // вызове — недопустимо дорого на каждый шаг свипа. Уровень шумодава и
 // VHF/UHF-диапазон меняются редко, поэтому кэшируем результат и
 // перечитываем только когда один из них реально изменился.
+//
+// КРИТИЧНО: аппаратные регистры шумодава (0x4D/0x4E/0x4F/0x78, которые
+// реально определяют бит BK4819_IsSquelchOpen()) программируются функцией
+// BK4819_Squelch() только при изменении PARAM_SQUELCH_VALUE — скан меняет
+// только PARAM_FREQUENCY на каждом шаге, это НЕ триггерит перезапись
+// регистров. Т.е. железо всё это время могло стоять на пресете от исходной
+// частоты VFO (до старта скана), а не от текущей сканируемой полосы —
+// если они в разных диапазонах (VHF/UHF), аппаратный бит шумодава почти
+// никогда не взводится правильно. Поэтому здесь же, при смене пресета,
+// перезаписываем и железные регистры напрямую (без второго чтения с флеша).
 static SquelchPreset cachedSq;
 static uint8_t cachedSqLevel = 0xFF; // заведомо невалидный — форсирует первую загрузку
 static bool cachedSqIsUHF = false;
@@ -43,6 +53,10 @@ static SquelchPreset GetSqlPresetCached(uint8_t level, uint32_t freq) {
     cachedSq = GetSqlPreset(level, freq);
     cachedSqLevel = level;
     cachedSqIsUHF = isUHF;
+
+    SQL sq = {.ro = cachedSq.ro, .rc = cachedSq.rc, .no = cachedSq.no,
+               .nc = cachedSq.nc, .go = cachedSq.go, .gc = cachedSq.gc};
+    BK4819_SetupSquelch(sq, gSettings.sqlOpenTime, gSettings.sqlCloseTime);
   }
   return cachedSq;
 }
