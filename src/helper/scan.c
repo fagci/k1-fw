@@ -320,11 +320,13 @@ static void HandleStateTuning(void) {
 
   // Из-за групповой задержки RSSI реальный сигнал может оказаться на
   // текущем канале или на одном-двух каналах позади (см. константы выше).
-  // Кандидаты идут от самого дальнего назад к текущему.
+  // Кандидаты идут от самого дальнего назад к текущему. Пропускаем
+  // ЧС/БС/garbage-частоты и здесь — иначе VERIFY может подтвердить и
+  // остановиться прямо на частоте, добавленной в чёрный список
   candidateCount = 0;
   for (int8_t i = CANDIDATE_LOOKBACK; i >= 0; i--) {
     uint32_t f = scan.currentF - (uint32_t)i * scan.stepF;
-    if (f >= scan.startF)
+    if (f >= scan.startF && !IsSkippable(f))
       candidates[candidateCount++] = f;
   }
   candidateIndex = 0;
