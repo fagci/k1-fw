@@ -11,79 +11,21 @@
 #include "measurements.h"
 
 #define GARBAGE_FREQ_STEP 650000U
+#define SOFT_SQ_HEADROOM 25 // % смягчения аппаратных порогов
 #define STE_DEBOUNCE_MS 250 // окно подавления STE-хвоста
 
-// ============================================================================
-// Двухфазный скан: FAST_SWEEP (RSSI-предфильтр) + CHECKING (проверка на
-// месте, без перестройки, опросом вместо одного фиксированного ожидания).
-//
-// FAST_SWEEP раньше сравнивал RSSI с адаптивной "полкой шума" (EMA),
-// подстраивающейся под фон в реальном времени. Оказалось, что это сама
-// по себе неустранимая дыра: в мало-мальски занятой полосе полка медленно
-// ползёт вверх на КАЖДОМ шаге с чуть повышенным RSSI (даже далёкая помеха,
-// не имеющая отношения к делу), и за десятки-сотни шагов свипа порог
-// может уползти выше реального слабого сигнала — сканер начинает
-// проскакивать его НАСКВОЗЬ, с той же скоростью, что и пустые каналы, даже
-// не пытаясь войти в CHECKING. Подтверждено на конкретном случае: сигнал
-// с RSSI 115/noise 53/glitch 76 (шумодав 2) надёжно открывался вручную во
-// VFO, но полностью пропускался сканом. Возвращаемся к АБСОЛЮТНОМУ порогу
-// sq.ro из уже откалиброванного по реальному железу пресета уровня
-// шумодава (см. GetSqlPresetCached) — он не дрейфует от фона полосы.
-//
-// Почему CHECKING — опрос, а не фиксированная пауза: Noise/Glitch — это не
-// мгновенные измерения, а интеграторы (RC-фильтры) с постоянной времени.
-// Она НЕ одинакова для сильного и слабого сигнала — у слабого (низкий
-// SNR) интегратору физически требуется больше времени, чтобы "выдавить"
-// уверенный результат из шума. Опрашиваем аппаратный бит шумодава
-// (BK4819_IsSquelchOpen) каждые CHECK_POLL_US и подтверждаем СРАЗУ как
-// только бит взвёлся — сильный сигнал открывается за 1-2 опроса, слабый
-// получает весь бюджет CHECK_MAX_US, а не обрезается на фиксированной
-// цифре. Если RSSI упал обратно ниже sq.ro раньше, чем бит взвёлся — это
-// был случайный ВЧ-пшик/хвост, дальше ждать бессмысленно.
-#define CHECK_POLL_US 500     // шаг опроса — дешёвое чтение одного регистра
-#define CHECK_MAX_US 20000    // верхний бюджет ожидания на кандидата
+// Адаптивный порог: снижается раз в N шагов без сигнала
+#define SQ_DECAY_STEPS 64
 
+static uint16_t sqLevel = 0;
+static uint8_t sqStepsPassed = 0;
+static bool sqWasThinking = false;
 static uint32_t preScanF = 0;
-
-// GetSqlPreset() читает файл пресета с флеша (Storage_Load) при каждом
-// вызове — недопустимо дорого на каждый шаг свипа. Уровень шумодава и
-// VHF/UHF-диапазон меняются редко, поэтому кэшируем результат и
-// перечитываем только когда один из них реально изменился.
-//
-// Несколько раундов ручной подгонки software-порогов по Noise/Glitch (свой
-// NOISE_CONFIRM_THRESHOLD, потом GetNoiseThreshold от уровня) так и не
-// сравнялись по чувствительности со штатным аппаратным решением чипа.
-// Финальное решение принимает сам аппаратный бит шумодава
-// (BK4819_IsSquelchOpen, см. IsSqOpenGated/HandleStateChecking) — он и так
-// настраивается этим же пресетом через BK4819_SetupSquelch ниже.
-//
-// КРИТИЧНО: аппаратные регистры шумодава (0x4D/0x4E/0x4F/0x78) программируются
-// функцией BK4819_Squelch() только при изменении PARAM_SQUELCH_VALUE — скан
-// меняет только PARAM_FREQUENCY на каждом шаге, это НЕ триггерит перезапись
-// регистров. Продолжаем синхронизировать их здесь же (без второго чтения с
-// флеша) на случай, если что-то ещё в проекте читает аппаратный бит шумодава.
-static SquelchPreset cachedSq;
-static uint8_t cachedSqLevel = 0xFF; // заведомо невалидный — форсирует первую загрузку
-static bool cachedSqIsUHF = false;
-
-static SquelchPreset GetSqlPresetCached(uint8_t level, uint32_t freq) {
-  bool isUHF = freq >= SETTINGS_GetFilterBound();
-  if (level != cachedSqLevel || isUHF != cachedSqIsUHF) {
-    cachedSq = GetSqlPreset(level, freq);
-    cachedSqLevel = level;
-    cachedSqIsUHF = isUHF;
-
-    SQL sq = {.ro = cachedSq.ro, .rc = cachedSq.rc, .no = cachedSq.no,
-               .nc = cachedSq.nc, .go = cachedSq.go, .gc = cachedSq.gc};
-    BK4819_SetupSquelch(sq, gSettings.sqlOpenTime, gSettings.sqlCloseTime);
-  }
-  return cachedSq;
-}
 
 static ScanContext scan = {
     .state = SCAN_STATE_IDLE,
     .mode = SCAN_MODE_SINGLE,
-    .warmupUs = 1000, // FAST_DELAY по ТЗ; настраивается как "Scan delay"
+    .warmupUs = 2500,
     .isOpen = false,
     .cmdRangeActive = false,
     .cmdCtx = NULL,
@@ -124,11 +66,15 @@ static void STE_StartGate(void) {
     sqReopenAt = Now() + STE_DEBOUNCE_MS;
 }
 
-// Тот же критерий, что и CHECKING (см. ниже) — аппаратный бит шумодава.
-// Если тут решать иначе (напр. своим software noise/glitch), можно получить
-// мгновенный открыл-закрыл сразу на входе в LISTENING, как уже было раньше.
 static bool IsSqOpenGated(void) {
   return BK4819_IsSquelchOpen() && (Now() >= sqReopenAt);
+}
+
+// Детекция сигнала по адаптивному порогу sqLevel
+static bool SimpleSq_Check(uint16_t rssi) {
+  if (!sqLevel && rssi)
+    sqLevel = rssi - 1; // инициализация при первом сигнале
+  return rssi >= sqLevel;
 }
 
 static bool IsSkippable(uint32_t f) {
@@ -263,8 +209,8 @@ static void HandleStateTuning(void) {
   // Включаем VCO перед перестройкой (мог быть выключен после прошлого замера)
   Reg30_SetPllVco(true);
 
-  // precise=false: только импульс ENABLE_VCO_CALIB (с паузой на реальную
-  // рекалибровку — см. BK4819_TuneTo), без полного сброса REG_30
+  // precise=false: только импульс ENABLE_VCO_CALIB вместо полного сброса
+  // REG_30, без паузы на полную рекалибровку
   RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, false, false);
   RADIO_SetParam(ctx, PARAM_FREQUENCY, scan.currentF, false);
   RADIO_ApplySettings(ctx);
@@ -272,79 +218,52 @@ static void HandleStateTuning(void) {
   SYSTICK_DelayUs(scan.warmupUs);
 
   scan.measurement.rssi = RADIO_GetRSSI(ctx);
+  scan.measurement.noise = BK4819_GetNoise();
+  scan.measurement.glitch = BK4819_GetGlitch();
   scan.measurement.f = scan.currentF;
 
   scan.scanCycles++;
   UpdateCPS();
 
-  if (scan.mode == SCAN_MODE_ANALYSER) {
-    // Только анализатору нужен полный график по каждому шагу — обычный
-    // свип решает исключительно по RSSI (см. ниже), noise/glitch читаются
-    // лишь на VERIFY/LISTENING для итоговой проверки
-    scan.measurement.noise = BK4819_GetNoise();
-    scan.measurement.glitch = BK4819_GetGlitch();
-    SP_AddPoint(&scan.measurement);
-    Reg30_SetPllVco(false);
-    scan.currentF += scan.stepF;
-    return;
-  }
-
-  scan.measurement.noise = 0;
-  scan.measurement.glitch = 0;
-
-  // Абсолютный, откалиброванный по уровню шумодава порог (см. комментарий
-  // в начале файла) — не дрейфует от фона полосы, в отличие от адаптивной
-  // полки, которая тут стояла раньше
-  SquelchPreset sq = GetSqlPresetCached(ctx->squelch.value, scan.currentF);
-  bool candidate = scan.measurement.rssi >= sq.ro;
-
   SP_AddPoint(&scan.measurement);
-
-  if (!candidate) {
+  if (scan.mode == SCAN_MODE_ANALYSER) {
     Reg30_SetPllVco(false);
     scan.currentF += scan.stepF;
     return;
   }
 
-  // Энергия есть — остаёмся на этом же канале (PLL не трогаем!) и ждём
-  // ещё в CHECKING, пока аппаратный бит шумодава не даст достоверный ответ
-  ChangeState(SCAN_STATE_CHECKING);
+  if (SimpleSq_Check(scan.measurement.rssi)) {
+    ChangeState(SCAN_STATE_CHECKING);
+  } else {
+    Reg30_SetPllVco(false);
+    scan.measurement.open = false;
+    scan.currentF += scan.stepF;
+
+    // деградация порога раз в SQ_DECAY_STEPS шагов без сигнала
+    if (++sqStepsPassed > SQ_DECAY_STEPS) {
+      sqStepsPassed = 0;
+      if (!sqWasThinking && sqLevel > 0)
+        sqLevel--;
+      sqWasThinking = false;
+    }
+  }
 }
 
+#define STE_CONFIRM_MS 60 // окно повторной проверки перед решением
+
 static void HandleStateChecking(void) {
-  // Частоту НЕ перестраиваем — PLL уже стоит на scan.currentF с прошлого
-  // шага TUNING. Убеждаемся, что аппаратные пороги реально соответствуют
-  // текущему уровню/диапазону (см. GetSqlPresetCached)
-  SquelchPreset sq = GetSqlPresetCached(ctx->squelch.value, scan.currentF);
+  // Даём каналу устояться STE_CONFIRM_MS без блокировки основного цикла
+  sqWasThinking = true;
+  if (ElapsedMs() < STE_CONFIRM_MS)
+    return;
 
-  bool confirmed = false;
-  uint32_t elapsed = 0;
-
-  while (elapsed < CHECK_MAX_US) {
-    SYSTICK_DelayUs(CHECK_POLL_US);
-    elapsed += CHECK_POLL_US;
-
-    if (BK4819_IsSquelchOpen()) {
-      confirmed = true;
-      break;
-    }
-
-    // Энергия уже пропала (был случайный ВЧ-пшик/хвост) — дальше ждать
-    // бессмысленно, экономим оставшийся бюджет
-    if (RADIO_GetRSSI(ctx) < sq.ro)
-      break;
-  }
-
-  scan.measurement.noise = BK4819_GetNoise();
-  scan.measurement.glitch = BK4819_GetGlitch();
-  scan.measurement.open = confirmed;
-
-  SP_AddPoint(&scan.measurement);
+  bool isOpen = BK4819_IsSquelchOpen();
+  scan.isOpen = isOpen;
+  scan.measurement.open = isOpen;
+  scan.measurement.f = scan.currentF;
   LOOT_Update(&scan.measurement);
 
-  if (confirmed) {
-    scan.isOpen = true;
-
+  if (isOpen) {
     vfo->is_open = true;
     RADIO_SwitchAudioToVFO(gRadioState, gRadioState->active_vfo_index);
     gRedrawScreen = true;
@@ -356,13 +275,13 @@ static void HandleStateChecking(void) {
     }
 
     ChangeState(SCAN_STATE_LISTENING);
-    return;
+  } else {
+    // ложный кандидат — поднимаем порог, но не выше реального диапазона RSSI
+    if (sqLevel < RSSI_MAX)
+      sqLevel++;
+    scan.currentF += scan.stepF;
+    ChangeState(SCAN_STATE_TUNING);
   }
-
-  // Не подтвердилось (хвост с прошлой частоты или короткая помеха) — летим дальше
-  Reg30_SetPllVco(false);
-  scan.currentF += scan.stepF;
-  ChangeState(SCAN_STATE_TUNING);
 }
 
 static uint32_t sqClosedAt = 0;
@@ -520,7 +439,9 @@ void SCAN_Init(void) {
   scan.scanCycles = 0;
   scan.currentCps = 0;
   scan.radioTimer = Now();
-  cachedSqLevel = 0xFF; // форсируем перечитывание пресета на новой сессии скана
+  sqLevel = 0;
+  sqStepsPassed = 0;
+  sqWasThinking = false;
 
   ApplyBandSettings();
   vfo->is_open = false;
