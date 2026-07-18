@@ -22,7 +22,10 @@
 // канала (высокий RSSI, но несущей уже нет) сам "рассосётся" в фильтре ПЧ,
 // а Noise к этому моменту покажет реальную картину. Никаких скачков PLL —
 // только ожидание на месте.
-#define SLOW_DELAY_US 4000 // добор с scan.warmupUs (~1мс) до ~5мс суммарно
+// Итоговое время с момента перестройки до проверки аппаратного бита
+// шумодава — это же значение уже подтверждало себя рабочим до серии
+// экспериментов с software-порогами (см. комментарий у IsSqOpenGated)
+#define CONFIRM_TOTAL_US 10000
 
 static uint32_t preScanF = 0;
 
@@ -36,19 +39,18 @@ static uint8_t GetMargin(void) {
   return (uint8_t)ConvertDomain(ctx->squelch.value, 0, 10, 5, 20);
 }
 
-// Фиксированный порог Noise отбрасывал слабые сигналы (низкий SNR => noise
-// выше). Чем чувствительнее шумодав (ниже уровень), тем больше шума в
-// полосе допускаем при подтверждении на VERIFY/LISTENING.
-static uint8_t GetNoiseThreshold(void) {
-  return (uint8_t)ConvertDomain(ctx->squelch.value, 0, 10, 45, 25);
-}
-
 // GetSqlPreset() читает файл пресета с флеша (Storage_Load) при каждом
 // вызове — недопустимо дорого на каждый шаг свипа. Уровень шумодава и
 // VHF/UHF-диапазон меняются редко, поэтому кэшируем результат и
-// перечитываем только когда один из них реально изменился. Используется
-// только поле go/gc (порог glitch на VERIFY) — RSSI/noise теперь решаются
-// адаптивной полкой и GetNoiseThreshold(), а не этим пресетом.
+// перечитываем только когда один из них реально изменился.
+//
+// Несколько раундов ручной подгонки software-порогов по Noise/Glitch (свой
+// NOISE_CONFIRM_THRESHOLD, потом GetNoiseThreshold от уровня) так и не
+// сравнялись по чувствительности со штатным аппаратным решением чипа — а
+// на нужном для достоверности времени (~10мс) экономии по факту уже нет.
+// Возвращаемся к финальному решению по самому аппаратному биту шумодава
+// (BK4819_IsSquelchOpen, см. IsSqOpenGated) — он и так настраивается этим
+// же пресетом через BK4819_SetupSquelch ниже.
 //
 // КРИТИЧНО: аппаратные регистры шумодава (0x4D/0x4E/0x4F/0x78) программируются
 // функцией BK4819_Squelch() только при изменении PARAM_SQUELCH_VALUE — скан
@@ -117,18 +119,11 @@ static void STE_StartGate(void) {
     sqReopenAt = Now() + STE_DEBOUNCE_MS;
 }
 
-// Тот же критерий подтверждения, что и VERIFY (см. ниже) — если тут решать
-// иначе (напр. аппаратным битом REG_0C), можно получить мгновенный
-// открыл-закрыл сразу на входе в LISTENING, как уже было раньше.
-static bool IsSqOpenSoftware(uint32_t freq) {
-  uint16_t noise = BK4819_GetNoise();
-  uint16_t glitch = BK4819_GetGlitch();
-  SquelchPreset sq = GetSqlPresetCached(ctx->squelch.value, freq);
-  return (noise <= GetNoiseThreshold()) && (glitch <= sq.go);
-}
-
+// Тот же критерий, что и CHECKING (см. ниже) — аппаратный бит шумодава.
+// Если тут решать иначе (напр. своим software noise/glitch), можно получить
+// мгновенный открыл-закрыл сразу на входе в LISTENING, как уже было раньше.
 static bool IsSqOpenGated(void) {
-  return IsSqOpenSoftware(scan.currentF) && (Now() >= sqReopenAt);
+  return BK4819_IsSquelchOpen() && (Now() >= sqReopenAt);
 }
 
 static bool IsSkippable(uint32_t f) {
@@ -313,25 +308,25 @@ static void HandleStateTuning(void) {
   }
 
   // Энергия есть — остаёмся на этом же канале (PLL не трогаем!) и ждём
-  // ещё в CHECKING, пока Noise не даст достоверный ответ
+  // ещё в CHECKING, пока аппаратный бит шумодава не даст достоверный ответ
   ChangeState(SCAN_STATE_CHECKING);
 }
 
 static void HandleStateChecking(void) {
   // Частоту НЕ перестраиваем — PLL уже стоит на scan.currentF с прошлого
   // шага TUNING. Хвост с предыдущего канала (высокий RSSI, но несущей уже
-  // нет) за это время "рассосётся" в фильтре ПЧ, и Noise покажет реальную
-  // картину — без единого лишнего дёргания PLL
-  SYSTICK_DelayUs(SLOW_DELAY_US);
+  // нет) за это время "рассосётся" в фильтре ПЧ, и аппаратный бит шумодава
+  // покажет реальную картину — без единого лишнего дёргания PLL
+  if (CONFIRM_TOTAL_US > scan.warmupUs)
+    SYSTICK_DelayUs(CONFIRM_TOTAL_US - scan.warmupUs);
 
   scan.measurement.noise = BK4819_GetNoise();
   scan.measurement.glitch = BK4819_GetGlitch();
 
-  // Noise: попадание в полосу RF-фильтра (селективно). Glitch: стабильность
-  // несущей — переиспользуем существующий per-level порог go/gc
-  SquelchPreset sq = GetSqlPresetCached(ctx->squelch.value, scan.currentF);
-  bool confirmed =
-      (scan.measurement.noise <= GetNoiseThreshold()) && (scan.measurement.glitch <= sq.go);
+  // Убеждаемся, что аппаратные пороги реально соответствуют текущему
+  // уровню/диапазону (см. GetSqlPresetCached), затем решаем по самому биту
+  GetSqlPresetCached(ctx->squelch.value, scan.currentF);
+  bool confirmed = BK4819_IsSquelchOpen();
   scan.measurement.open = confirmed;
 
   SP_AddPoint(&scan.measurement);
