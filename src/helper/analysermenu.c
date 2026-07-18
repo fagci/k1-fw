@@ -41,6 +41,30 @@ static const RegDesc regDescs[] = {
     {"GltchBW", 0x47, 1, 7, 0b1111111, 1},  //
     {"Compand", 0x31, 3, 1, 1, 1}, // enabling raises TX gain, drop MIC to compensate
     {"AVC", 0x4B, 5, 1, 1, 1}, // Automatic Volume Control (Rx)
+
+    // --- PLL/VCO: сама перестройка (BK4819_TuneTo дёргает VCO_CALIB импульсом,
+    // весь этот блок REG_30 определяет, что вообще включено на приёме) ---
+    {"VCO Calib", 0x30, 15, 1, 1, 1},   // REG_30<15> impulse ENABLE_VCO_CALIB
+    {"PLL VCO En", 0x30, 4, 4, 15, 1},  // REG_30<7:4> ENABLE_PLL_VCO (наш Reg30_SetPllVco)
+    {"RX Link En", 0x30, 10, 4, 15, 1}, // REG_30<13:10> ENABLE_RX_LINK
+
+    // --- IF-фильтр: полоса определяет постоянную времени, с которой
+    // устаканивается Noise/Glitch (уже, — медленнее и селективнее; шире —
+    // быстрее, но хуже отличает сигнал от шума) ---
+    {"RF Filt BW", 0x43, 12, 3, 7, 1}, // REG_43<14:12> RF filter (rf[] в SetFilterBandwidth)
+    {"WB Filt", 0x43, 9, 3, 7, 1},     // REG_43<11:9> weak-signal RF filter (wb[])
+    {"BW Mode", 0x43, 4, 2, 3, 1},     // REG_43<5:4> 12.5k/6.25k/25k (bs[])
+
+    // --- Аппаратная задержка подтверждения шумодава — то самое время,
+    // которое чип сам ждёт перед тем, как поднять/снять бит REG_0C<1>,
+    // независимо от того, сколько мы сами ждём в software (BK4819_SetupSquelch) ---
+    {"SQ DlyOpen", 0x4E, 11, 3, 7, 1},  // REG_4E<13:11> delayOpen
+    {"SQ DlyClose", 0x4E, 9, 2, 3, 1},  // REG_4E<10:9> delayClose
+
+    // --- AGC: переключения усиления — источник переходных процессов,
+    // на которых RSSI ещё не устаканился ---
+    {"AGC Disable", 0x7E, 15, 1, 1, 1}, // REG_7E<15> 1=фиксированный gain, AGC выкл
+    {"AGC Cnt", 0x7E, 12, 3, 7, 1},     // REG_7E<14:12> (в коде захардкожено на 3)
 };
 
 #define REG_COUNT ARRAY_SIZE(regDescs)
