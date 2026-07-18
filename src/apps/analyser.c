@@ -128,7 +128,8 @@ static SqEditParam sqEditParam = SQ_EDIT_RSSI;
 // ── Отображаемый параметр спектра ──────────────────────────────────────────
 // Выбранное значение пишется в rssi-канал графика (SP_AddPoint), так что вся
 // существующая отрисовка/пики/маркеры работают без изменений. Переключение —
-// короткий KEY_0 (длинный занят дебаг-меню регистров).
+// KEY_0 при открытом оверлее KEY_F (сам по себе короткий 0 занят regs-меню,
+// длинный — дебаг-меню регистров).
 
 typedef enum {
   SPAR_RSSI,
@@ -687,10 +688,6 @@ static bool stillModeKey(KEY_Code_t key, Key_State_t state) {
   case KEY_SIDE2:
     LOOT_WhitelistLast();
     return true;
-  case KEY_0:
-    if (state == KEY_RELEASED)
-      cycleSpecParam();
-    return true;
   default:
     break;
   }
@@ -837,10 +834,6 @@ static bool analyzerModeKey(KEY_Code_t key, Key_State_t state) {
     LOOTLIST_init();
     gLootlistActive = true;
     return true;
-  case KEY_0:
-    if (state == KEY_RELEASED)
-      cycleSpecParam();
-    return true;
   default:
     break;
   }
@@ -848,6 +841,14 @@ static bool analyzerModeKey(KEY_Code_t key, Key_State_t state) {
 }
 
 bool ANALYSER_key(KEY_Code_t key, Key_State_t state) {
+  // Пока открыт оверлей тюнера/полки (KEY_F), KEY_0 циклит отображаемый
+  // параметр спектра. Перехват ДО REGSMENU_Key — вне оверлея короткий
+  // KEY_0 остаётся toggle'ом regs-меню, как раньше.
+  if (showSqTuner && key == KEY_0 && state == KEY_RELEASED) {
+    cycleSpecParam();
+    return true;
+  }
+
   if (REGSMENU_Key(key, state))
     return true;
 
@@ -1280,7 +1281,7 @@ static void renderStillInfo(void) {
 
   if (specParam != SPAR_RSSI) {
     // Один выбранный параметр вместо полной сводки — не перегружаем экран;
-    // переключение по KEY_0
+    // переключение: KEY_F (оверлей), затем KEY_0
     PrintSmallEx(LCD_XCENTER, 12 + 6 * 2, POS_C, C_FILL, "%s %u",
                  SPAR_NAMES[specParam], specValue);
   } else if (glitchDisabled()) {
