@@ -124,6 +124,84 @@ typedef enum {
 } SqEditParam;
 
 static SqEditParam sqEditParam = SQ_EDIT_RSSI;
+
+// ── Отображаемый параметр спектра ──────────────────────────────────────────
+// Выбранное значение пишется в rssi-канал графика (SP_AddPoint), так что вся
+// существующая отрисовка/пики/маркеры работают без изменений. Переключение —
+// короткий KEY_0 (длинный занят дебаг-меню регистров).
+
+typedef enum {
+  SPAR_RSSI,
+  SPAR_NOISE,
+  SPAR_GLITCH,
+  SPAR_LNA_PEAK,
+  SPAR_AGC_RSSI,
+  SPAR_UPPER_PWR,
+  SPAR_LOWER_PWR,
+  SPAR_SNR,
+  SPAR_SIG_PWR,
+  SPAR_AFC,
+  SPAR_COUNT,
+} SpecParam;
+
+static const char *SPAR_NAMES[SPAR_COUNT] = {
+    "RSSI", "NOISE", "GLITCH", "LNAPK", "AGCR",
+    "UPWR", "LPWR",  "SNR",    "SPWR",  "AFC",
+};
+
+static SpecParam specParam = SPAR_RSSI;
+static uint16_t specValue;  // последнее значение выбранного параметра
+static uint16_t specLine = 64; // измерительная полка для не-RSSI параметров
+
+static uint16_t readSpecParam(void) {
+  switch (specParam) {
+  case SPAR_NOISE:
+    return BK4819_GetNoise();
+  case SPAR_GLITCH:
+    return BK4819_GetGlitch();
+  case SPAR_LNA_PEAK:
+    return BK4819_GetLnaPeakRSSI();
+  case SPAR_AGC_RSSI:
+    return BK4819_GetAgcRSSI();
+  case SPAR_UPPER_PWR:
+    return BK4819_GetUpperChannelRelativePower();
+  case SPAR_LOWER_PWR:
+    return BK4819_GetLowerChannelRelativePower();
+  case SPAR_SNR:
+    return BK4819_GetSNR();
+  case SPAR_SIG_PWR:
+    return BK4819_GetSignalPower();
+  case SPAR_AFC: {
+    // знаковое отклонение — на графике показываем модуль (близко к 0 =
+    // несущая точно на частоте)
+    int16_t afc = BK4819_GetAFCValue();
+    uint16_t mag = (uint16_t)(afc < 0 ? -afc : afc);
+    return mag > 1023 ? 1023 : mag;
+  }
+  default:
+    return msm->rssi;
+  }
+}
+
+// Естественный масштаб Y для не-RSSI параметров (RSSI живёт в dBm-шкале)
+static VMinMax specParamScale(void) {
+  switch (specParam) {
+  case SPAR_NOISE:
+    return (VMinMax){.vMin = 0, .vMax = 128};
+  case SPAR_AFC:
+    return (VMinMax){.vMin = 0, .vMax = 1024};
+  case SPAR_SIG_PWR:
+    return (VMinMax){.vMin = 0, .vMax = 64};
+  default:
+    return (VMinMax){.vMin = 0, .vMax = 256};
+  }
+}
+
+static void cycleSpecParam(void) {
+  specParam = (specParam + 1) % SPAR_COUNT;
+  TOAST_Push("%s", SPAR_NAMES[specParam]);
+  gRedrawScreen = true;
+}
 static uint8_t sqEditLevel;
 static uint8_t lastSquelchLevel = SQ_LEVEL_INVALID;
 
@@ -517,6 +595,28 @@ static bool dbmTunerKey(KEY_Code_t key, Key_State_t state) {
 }
 
 static bool sqTunerKey(KEY_Code_t key, Key_State_t state) {
+  // Для не-RSSI параметра тюнер (KEY_F) превращается в измерительную полку:
+  // 1/7 двигают уровень, значение читается по положению линии
+  if (specParam != SPAR_RSSI) {
+    switch (key) {
+    case KEY_1:
+    case KEY_7: {
+      VMinMax pv = specParamScale();
+      specLine = AdjustU(specLine, pv.vMin, pv.vMax, key == KEY_1 ? 1 : -1);
+      return true;
+    }
+    case KEY_4:
+    case KEY_6:
+      setDelayUs(adjustDelay(key == KEY_4 ? 1 : -1));
+      return true;
+    case KEY_MENU:
+      return true;
+    default:
+      break;
+    }
+    return false;
+  }
+
   switch (key) {
   case KEY_1:
   case KEY_7:
@@ -586,6 +686,10 @@ static bool stillModeKey(KEY_Code_t key, Key_State_t state) {
     return true;
   case KEY_SIDE2:
     LOOT_WhitelistLast();
+    return true;
+  case KEY_0:
+    if (state == KEY_RELEASED)
+      cycleSpecParam();
     return true;
   default:
     break;
@@ -732,6 +836,10 @@ static bool analyzerModeKey(KEY_Code_t key, Key_State_t state) {
   case KEY_STAR:
     LOOTLIST_init();
     gLootlistActive = true;
+    return true;
+  case KEY_0:
+    if (state == KEY_RELEASED)
+      cycleSpecParam();
     return true;
   default:
     break;
@@ -935,6 +1043,9 @@ static void measure(void) {
   if (gSettings.skipGarbageFrequencies && (msm->f % 650000U == 0)) {
     msm->open = false;
   }
+
+  // Читаем выбранный параметр здесь же, пока приёмник ещё на этой частоте
+  specValue = (specParam == SPAR_RSSI) ? msm->rssi : readSpecParam();
 }
 
 static void updateListening(void) {
@@ -976,7 +1087,15 @@ static void updateScan(void) {
   msm->f = scanF;
   measure();
   if (!still) {
-    SP_AddPoint(msm);
+    if (specParam == SPAR_RSSI) {
+      SP_AddPoint(msm);
+    } else {
+      // График рисуется из rssi-канала — подменяем его выбранным параметром,
+      // не трогая msm (squelch-логика продолжает жить на настоящем RSSI)
+      Measurement disp = *msm;
+      disp.rssi = specValue;
+      SP_AddPoint(&disp);
+    }
   }
 
   if (still)
@@ -1159,7 +1278,12 @@ static void renderStillInfo(void) {
   PrintMediumEx(LCD_XCENTER, 14, POS_C, C_FILL,
                 RADIO_GetParamValueString(ctx, PARAM_FREQUENCY));
 
-  if (glitchDisabled()) {
+  if (specParam != SPAR_RSSI) {
+    // Один выбранный параметр вместо полной сводки — не перегружаем экран;
+    // переключение по KEY_0
+    PrintSmallEx(LCD_XCENTER, 12 + 6 * 2, POS_C, C_FILL, "%s %u",
+                 SPAR_NAMES[specParam], specValue);
+  } else if (glitchDisabled()) {
     PrintSmallEx(LCD_XCENTER, 12 + 6 * 2, POS_C, C_FILL, "R%u N%u", msm->rssi,
                  msm->noise);
   } else {
@@ -1195,10 +1319,15 @@ static void renderUserMarker(const Marker *m, char label) {
 void ANALYSER_render(void) {
   STATUSLINE_RenderRadioSettings();
 
-  VMinMax v = autoLevelMode
-                  ? SP_GetAutoLevel()
-                  : (VMinMax){.vMin = DBm2Rssi(ANALYSERMENU_GetDbmMin()),
-                              .vMax = DBm2Rssi(ANALYSERMENU_GetDbmMax())};
+  VMinMax v;
+  if (specParam != SPAR_RSSI) {
+    v = specParamScale(); // естественный масштаб выбранного параметра
+  } else if (autoLevelMode) {
+    v = SP_GetAutoLevel();
+  } else {
+    v = (VMinMax){.vMin = DBm2Rssi(ANALYSERMENU_GetDbmMin()),
+                  .vMax = DBm2Rssi(ANALYSERMENU_GetDbmMax())};
+  }
   SP_Render(&range, v);
   renderBottomFreq();
 
@@ -1214,6 +1343,10 @@ void ANALYSER_render(void) {
     sx += 7;
   }
   PrintSmallEx(sx, 12, POS_L, C_FILL, "%uus", delay);
+  if (specParam != SPAR_RSSI) {
+    sx += 26;
+    PrintSmallEx(sx, 12, POS_L, C_FILL, "%s", SPAR_NAMES[specParam]);
+  }
   PrintSmallEx(LCD_WIDTH - 1, 12, POS_R, C_FILL, "%s",
                RADIO_GetParamValueString(ctx, PARAM_STEP));
 
@@ -1244,20 +1377,28 @@ void ANALYSER_render(void) {
   }
 
   if (showSqTuner) {
-    renderSqTuner();
-    uint16_t threshold = 0;
-    switch (sqEditParam) {
-    case SQ_EDIT_RSSI:
-      threshold = sq.ro;
-      break;
-    case SQ_EDIT_NOISE:
-      threshold = sq.no;
-      break;
-    case SQ_EDIT_GLITCH:
-      threshold = sq.go;
-      break;
+    if (specParam != SPAR_RSSI) {
+      // Измерительная полка выбранного параметра: 1/7 двигают, значение
+      // уровня — рядом с именем параметра
+      SP_RenderLine(specLine, v);
+      PrintSmallEx(LCD_WIDTH - 2, 18, POS_R, C_FILL, "%s %3u",
+                   SPAR_NAMES[specParam], specLine);
+    } else {
+      renderSqTuner();
+      uint16_t threshold = 0;
+      switch (sqEditParam) {
+      case SQ_EDIT_RSSI:
+        threshold = sq.ro;
+        break;
+      case SQ_EDIT_NOISE:
+        threshold = sq.no;
+        break;
+      case SQ_EDIT_GLITCH:
+        threshold = sq.go;
+        break;
+      }
+      SP_RenderLine(threshold, v);
     }
-    SP_RenderLine(threshold, v);
   }
 
   REGSMENU_Draw();
