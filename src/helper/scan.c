@@ -11,38 +11,54 @@
 #include "measurements.h"
 
 #define GARBAGE_FREQ_STEP 650000U
-#define SOFT_SQ_HEADROOM 25 // % смягчения аппаратных порогов
 #define STE_DEBOUNCE_MS 250 // окно подавления STE-хвоста
 
-// Двухфазное обнаружение (по эмпирическим замерам). RSSI "усаживается" на
-// реальный канал быстро (~scan.warmupUs, ~2.2мс), но сам по себе не
-// отличает сигнал от шума/наводки — годится только как дешёвый
-// предфильтр "стоит ли досиживать". Аппаратный бит шумодава (0x0C бит1)
-// внутри себя учитывает и glitch, а по замерам пользователя glitch
-// становится значимым только к ~10мс. Раньше это маскировалось побочной
-// задержкой GetSqlPreset() (чтение пресета с флеша, ~29мс на вызов) — как
-// только её убрали кэшированием (см. GetSqlPresetCached), реальный аппаратный
-// бит перестал успевать взводиться даже на сильных сигналах. Поэтому здесь
-// не фиксированный добор, а досиживание до фиксированного ИТОГО времени с
-// момента перестройки — не зависит от scan.warmupUs (он настраиваемый).
-#define SQUELCH_CONFIRM_TOTAL_US 10000
+// ============================================================================
+// Адаптивный двухфазный скан (FAST_SWEEP + VERIFY) — по ТЗ, выведенному из
+// серии замеров на реальном железе:
+//  - RSSI отрабатывает быстро (~1мс), но с групповой задержкой: пик энергии
+//    с канала N аппаратно фиксируется на N+1/N+2 при скане вверх (замер:
+//    сигнал 172.300, шаг 25кГц, скан вверх — остановка на 172.350 = +2 шага).
+//  - Noise/Glitch достоверны только к ~5мс, зато селективны (не путают
+//    сигнал с шумом/наводкой), поэтому именно они — критерий подтверждения.
+// FAST_SWEEP детектирует передний фронт RSSI относительно адаптивной полки
+// шума за FAST_DELAY_US; при срабатывании VERIFY проверяет несколько
+// кандидатов НАЗАД (текущий, N-1, N-2 — см. CANDIDATE_LOOKBACK) за
+// SLOW_DELAY_US каждый, пока не найдёт реально подтверждённый.
+// FAST_DELAY — не фиксированная константа, а scan.warmupUs (существующая
+// настраиваемая "Scan delay" в меню); 1000 — рекомендованное ТЗ значение по
+// умолчанию (см. инициализатор scan ниже), но пользователь может подстроить.
+#define SLOW_DELAY_US 5000
+#define NOISE_CONFIRM_THRESHOLD 32 // порог "сигнал в полосе фильтра" (12.5/25кГц)
+#define CANDIDATE_LOOKBACK 2 // сколько шагов назад проверяем на VERIFY
 
 static uint32_t preScanF = 0;
+
+static int32_t floorLevel = 100; // адаптивная полка шума, сбрасывается в SCAN_Init
+static int32_t rssiPrev = 0;
+
+static uint32_t candidates[CANDIDATE_LOOKBACK + 1];
+static uint8_t candidateCount = 0;
+static uint8_t candidateIndex = 0;
+
+// Уровень шумодава (1-10, старая настройка) остаётся ручкой чувствительности:
+// выше уровень — больше отступ порога от полки шума, нужен сигнал сильнее.
+static uint8_t GetMargin(void) {
+  return (uint8_t)ConvertDomain(ctx->squelch.value, 0, 10, 10, 25);
+}
 
 // GetSqlPreset() читает файл пресета с флеша (Storage_Load) при каждом
 // вызове — недопустимо дорого на каждый шаг свипа. Уровень шумодава и
 // VHF/UHF-диапазон меняются редко, поэтому кэшируем результат и
-// перечитываем только когда один из них реально изменился.
+// перечитываем только когда один из них реально изменился. Используется
+// только поле go/gc (порог glitch на VERIFY) — RSSI/noise теперь решаются
+// адаптивной полкой и NOISE_CONFIRM_THRESHOLD, а не этим пресетом.
 //
-// КРИТИЧНО: аппаратные регистры шумодава (0x4D/0x4E/0x4F/0x78, которые
-// реально определяют бит BK4819_IsSquelchOpen()) программируются функцией
-// BK4819_Squelch() только при изменении PARAM_SQUELCH_VALUE — скан меняет
-// только PARAM_FREQUENCY на каждом шаге, это НЕ триггерит перезапись
-// регистров. Т.е. железо всё это время могло стоять на пресете от исходной
-// частоты VFO (до старта скана), а не от текущей сканируемой полосы —
-// если они в разных диапазонах (VHF/UHF), аппаратный бит шумодава почти
-// никогда не взводится правильно. Поэтому здесь же, при смене пресета,
-// перезаписываем и железные регистры напрямую (без второго чтения с флеша).
+// КРИТИЧНО: аппаратные регистры шумодава (0x4D/0x4E/0x4F/0x78) программируются
+// функцией BK4819_Squelch() только при изменении PARAM_SQUELCH_VALUE — скан
+// меняет только PARAM_FREQUENCY на каждом шаге, это НЕ триггерит перезапись
+// регистров. Продолжаем синхронизировать их здесь же (без второго чтения с
+// флеша) на случай, если что-то ещё в проекте читает аппаратный бит шумодава.
 static SquelchPreset cachedSq;
 static uint8_t cachedSqLevel = 0xFF; // заведомо невалидный — форсирует первую загрузку
 static bool cachedSqIsUHF = false;
@@ -64,7 +80,7 @@ static SquelchPreset GetSqlPresetCached(uint8_t level, uint32_t freq) {
 static ScanContext scan = {
     .state = SCAN_STATE_IDLE,
     .mode = SCAN_MODE_SINGLE,
-    .warmupUs = 2500,
+    .warmupUs = 1000, // FAST_DELAY по ТЗ; настраивается как "Scan delay"
     .isOpen = false,
     .cmdRangeActive = false,
     .cmdCtx = NULL,
@@ -105,8 +121,18 @@ static void STE_StartGate(void) {
     sqReopenAt = Now() + STE_DEBOUNCE_MS;
 }
 
+// Тот же критерий подтверждения, что и VERIFY (см. ниже) — если тут решать
+// иначе (напр. аппаратным битом REG_0C), можно получить мгновенный
+// открыл-закрыл сразу на входе в LISTENING, как уже было раньше.
+static bool IsSqOpenSoftware(uint32_t freq) {
+  uint16_t noise = BK4819_GetNoise();
+  uint16_t glitch = BK4819_GetGlitch();
+  SquelchPreset sq = GetSqlPresetCached(ctx->squelch.value, freq);
+  return (noise <= NOISE_CONFIRM_THRESHOLD) && (glitch <= sq.go);
+}
+
 static bool IsSqOpenGated(void) {
-  return BK4819_IsSquelchOpen() && (Now() >= sqReopenAt);
+  return IsSqOpenSoftware(scan.currentF) && (Now() >= sqReopenAt);
 }
 
 static bool IsSkippable(uint32_t f) {
@@ -194,6 +220,9 @@ static void HandleEndOfRange(void) {
     ChangeState(SCAN_STATE_IDLE);
   } else {
     scan.currentF = scan.startF;
+    // Сброс на границе диапазона — иначе RSSI_prev от конца прошлого прохода
+    // может ложно совпасть с условием переднего фронта на первом канале
+    rssiPrev = floorLevel;
     ChangeState(SCAN_STATE_TUNING);
     SP_Begin();
   }
@@ -241,13 +270,8 @@ static void HandleStateTuning(void) {
   // Включаем VCO перед перестройкой (мог быть выключен после прошлого замера)
   Reg30_SetPllVco(true);
 
-  // precise=false: только импульс ENABLE_VCO_CALIB вместо полного сброса
-  // REG_30, без паузы на полную рекалибровку. Полный сброс (precise=true)
-  // глушит на время рестабилизации весь аналоговый тракт, а не только
-  // калибровку VCO — фиксированное окно замера (warmupUs) с этим не
-  // справляется, из-за чего замер на этом шаге может ложно не увидеть
-  // даже сильный сигнал. Поэтому здесь всегда precise=false; см.
-  // HandleStateListening/SCAN_Next про попытку форсировать true.
+  // precise=false: только импульс ENABLE_VCO_CALIB (с паузой на реальную
+  // рекалибровку — см. BK4819_TuneTo), без полного сброса REG_30
   RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, false, false);
   RADIO_SetParam(ctx, PARAM_FREQUENCY, scan.currentF, false);
   RADIO_ApplySettings(ctx);
@@ -255,7 +279,7 @@ static void HandleStateTuning(void) {
   SYSTICK_DelayUs(scan.warmupUs);
 
   scan.measurement.rssi = RADIO_GetRSSI(ctx);
-  scan.measurement.noise = BK4819_GetNoise();
+  scan.measurement.noise = BK4819_GetNoise(); // для графика; на решение FAST_SWEEP не влияет
   scan.measurement.glitch = BK4819_GetGlitch();
   scan.measurement.f = scan.currentF;
 
@@ -269,33 +293,84 @@ static void HandleStateTuning(void) {
     return;
   }
 
-  // Фаза 1: RSSI уже усажен на канал (см. константы выше), но это дешёвый
-  // предфильтр — сам по себе не отличает сигнал от шума/наводки
-  SquelchPreset sq = GetSqlPresetCached(ctx->squelch.value, scan.currentF);
-  bool candidate = scan.measurement.rssi >= sq.ro;
-  bool isOpen = false;
-
-  if (candidate) {
-    // Фаза 2: досиживаем до SQUELCH_CONFIRM_TOTAL_US суммарно с момента
-    // перестройки — тот же критерий, что потом держит LISTENING
-    // (HandleStateListening проверяет тот же аппаратный регистр через
-    // IsSqOpenGated). Если решать иначе (напр. только по софтовому noise),
-    // железо тут же скажет "закрыто" и получим моментальный
-    // открыл-закрыл на каждом ложном кандидате.
-    if (SQUELCH_CONFIRM_TOTAL_US > scan.warmupUs)
-      SYSTICK_DelayUs(SQUELCH_CONFIRM_TOTAL_US - scan.warmupUs);
-    scan.measurement.noise = BK4819_GetNoise();
-    scan.measurement.glitch = BK4819_GetGlitch();
-    isOpen = BK4819_IsSquelchOpen();
+  // Слежение за полкой шума: мгновенное притяжение вниз на тихом канале,
+  // медленный подъём при попадании в зашумлённый участок
+  int32_t rssiCurr = scan.measurement.rssi;
+  uint8_t margin = GetMargin();
+  if (rssiCurr < floorLevel) {
+    floorLevel = rssiCurr;
+  } else if (rssiCurr > floorLevel + margin) {
+    floorLevel++;
   }
+  int32_t threshold = floorLevel + margin;
+
+  // Детектор переднего фронта — только резкий скачок, а не любое
+  // превышение порога (иначе на затянутых сигналах будет срабатывать
+  // на каждом шаге, а не только на входе в него)
+  bool edge = (rssiCurr > threshold) && (rssiPrev <= threshold);
+  rssiPrev = rssiCurr;
 
   SP_AddPoint(&scan.measurement);
 
-  scan.isOpen = isOpen;
-  scan.measurement.open = isOpen;
+  if (!edge) {
+    Reg30_SetPllVco(false);
+    scan.currentF += scan.stepF;
+    return;
+  }
+
+  // Из-за групповой задержки RSSI реальный сигнал может оказаться на
+  // текущем канале или на одном-двух каналах позади (см. константы выше).
+  // Кандидаты идут от самого дальнего назад к текущему.
+  candidateCount = 0;
+  for (int8_t i = CANDIDATE_LOOKBACK; i >= 0; i--) {
+    uint32_t f = scan.currentF - (uint32_t)i * scan.stepF;
+    if (f >= scan.startF)
+      candidates[candidateCount++] = f;
+  }
+  candidateIndex = 0;
+  ChangeState(SCAN_STATE_CHECKING);
+}
+
+static void HandleStateChecking(void) {
+  if (candidateIndex >= candidateCount) {
+    // Ни один кандидат не подтвердился — возвращаемся к свипу со следующего
+    // после текущего (последнего проверенного) канала
+    Reg30_SetPllVco(false);
+    scan.currentF += scan.stepF;
+    ChangeState(SCAN_STATE_TUNING);
+    return;
+  }
+
+  uint32_t f = candidates[candidateIndex];
+
+  RADIO_MuteAudioNow(gRadioState);
+  Reg30_SetPllVco(true);
+  RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, false, false);
+  RADIO_SetParam(ctx, PARAM_FREQUENCY, f, false);
+  RADIO_ApplySettings(ctx);
+
+  SYSTICK_DelayUs(SLOW_DELAY_US);
+
+  Measurement m = {0};
+  m.f = f;
+  m.rssi = RADIO_GetRSSI(ctx);
+  m.noise = BK4819_GetNoise();
+  m.glitch = BK4819_GetGlitch();
+
+  // Noise: попадание в полосу RF-фильтра (селективно). Glitch: стабильность
+  // несущей — переиспользуем существующий per-level порог go/gc
+  SquelchPreset sq = GetSqlPresetCached(ctx->squelch.value, f);
+  bool confirmed = (m.noise <= NOISE_CONFIRM_THRESHOLD) && (m.glitch <= sq.go);
+
+  scan.measurement = m;
+  scan.measurement.open = confirmed;
+  SP_AddPoint(&scan.measurement);
   LOOT_Update(&scan.measurement);
 
-  if (isOpen) {
+  if (confirmed) {
+    scan.currentF = f;
+    scan.isOpen = true;
+
     vfo->is_open = true;
     RADIO_SwitchAudioToVFO(gRadioState, gRadioState->active_vfo_index);
     gRedrawScreen = true;
@@ -307,10 +382,10 @@ static void HandleStateTuning(void) {
     }
 
     ChangeState(SCAN_STATE_LISTENING);
-  } else {
-    Reg30_SetPllVco(false);
-    scan.currentF += scan.stepF;
+    return;
   }
+
+  candidateIndex++;
 }
 
 static uint32_t sqClosedAt = 0;
@@ -348,6 +423,10 @@ static void HandleStateListening(void) {
 
   if (shouldLeave) {
     RADIO_MuteAudioNow(gRadioState);
+    // Иначе FAST_SWEEP увидит устаревший RSSI_prev (замеренный ещё до
+    // остановки на сигнале) и может сразу же ложно поймать передний фронт
+    // на хвосте этого же сигнала на следующем канале
+    rssiPrev = RADIO_GetRSSI(ctx);
     scan.currentF += scan.stepF;
     sqClosedAt = 0;
     ChangeState(SCAN_STATE_TUNING);
@@ -394,8 +473,7 @@ void SCAN_Check(void) {
     HandleStateTuning();
     break;
   case SCAN_STATE_CHECKING:
-    // Больше не используется: проверка шумодава теперь встроена прямо в
-    // HandleStateTuning сразу после замера — см. SQUELCH_CONFIRM_TOTAL_US.
+    HandleStateChecking();
     break;
   case SCAN_STATE_LISTENING:
     HandleStateListening();
@@ -470,6 +548,10 @@ void SCAN_Init(void) {
   scan.currentCps = 0;
   scan.radioTimer = Now();
   cachedSqLevel = 0xFF; // форсируем перечитывание пресета на новой сессии скана
+  floorLevel = 100;
+  rssiPrev = 0;
+  candidateCount = 0;
+  candidateIndex = 0;
 
   ApplyBandSettings();
   vfo->is_open = false;
