@@ -279,19 +279,25 @@ static void HandleStateTuning(void) {
   SYSTICK_DelayUs(scan.warmupUs);
 
   scan.measurement.rssi = RADIO_GetRSSI(ctx);
-  scan.measurement.noise = BK4819_GetNoise(); // для графика; на решение FAST_SWEEP не влияет
-  scan.measurement.glitch = BK4819_GetGlitch();
   scan.measurement.f = scan.currentF;
 
   scan.scanCycles++;
   UpdateCPS();
 
   if (scan.mode == SCAN_MODE_ANALYSER) {
+    // Только анализатору нужен полный график по каждому шагу — обычный
+    // свип решает исключительно по RSSI (см. ниже), noise/glitch читаются
+    // лишь на VERIFY/LISTENING для итоговой проверки
+    scan.measurement.noise = BK4819_GetNoise();
+    scan.measurement.glitch = BK4819_GetGlitch();
     SP_AddPoint(&scan.measurement);
     Reg30_SetPllVco(false);
     scan.currentF += scan.stepF;
     return;
   }
+
+  scan.measurement.noise = 0;
+  scan.measurement.glitch = 0;
 
   // Слежение за полкой шума: мгновенное притяжение вниз на тихом канале,
   // медленный подъём при попадании в зашумлённый участок
