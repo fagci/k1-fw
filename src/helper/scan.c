@@ -14,35 +14,26 @@
 #define STE_DEBOUNCE_MS 250 // окно подавления STE-хвоста
 
 // ============================================================================
-// Адаптивный двухфазный скан (FAST_SWEEP + VERIFY) — по ТЗ, выведенному из
-// серии замеров на реальном железе:
-//  - RSSI отрабатывает быстро (~1мс), но с групповой задержкой: пик энергии
-//    с канала N аппаратно фиксируется на N+1/N+2 при скане вверх (замер:
-//    сигнал 172.300, шаг 25кГц, скан вверх — остановка на 172.350 = +2 шага).
-//  - Noise/Glitch достоверны только к ~5мс, зато селективны (не путают
-//    сигнал с шумом/наводкой), поэтому именно они — критерий подтверждения.
-// FAST_SWEEP детектирует передний фронт RSSI относительно адаптивной полки
-// шума за FAST_DELAY_US; при срабатывании VERIFY проверяет несколько
-// кандидатов НАЗАД (текущий, N-1, N-2 — см. CANDIDATE_LOOKBACK) за
-// SLOW_DELAY_US каждый, пока не найдёт реально подтверждённый.
-// FAST_DELAY — не фиксированная константа, а scan.warmupUs (существующая
-// настраиваемая "Scan delay" в меню); 1000 — рекомендованное ТЗ значение по
-// умолчанию (см. инициализатор scan ниже), но пользователь может подстроить.
-#define SLOW_DELAY_US 5000
-#define CANDIDATE_LOOKBACK 2 // сколько шагов назад проверяем на VERIFY
+// Двухфазный скан: FAST_SWEEP (RSSI-предфильтр) + CHECKING (проверка на
+// месте, без перестройки). Раньше при срабатывании RSSI-порога скан скакал
+// проверять несколько каналов НАЗАД (компенсируя групповую задержку RSSI),
+// каждый раз дёргая PLL — дорого по времени и не нужно: если просто
+// остаться на ТЕКУЩЕМ канале и подождать те же 4-5мс, хвост с предыдущего
+// канала (высокий RSSI, но несущей уже нет) сам "рассосётся" в фильтре ПЧ,
+// а Noise к этому моменту покажет реальную картину. Никаких скачков PLL —
+// только ожидание на месте.
+#define SLOW_DELAY_US 4000 // добор с scan.warmupUs (~1мс) до ~5мс суммарно
 
 static uint32_t preScanF = 0;
 
 static int32_t floorLevel = 100; // адаптивная полка шума (EMA), сбрасывается в SCAN_Init
 
-static uint32_t candidates[CANDIDATE_LOOKBACK + 1];
-static uint8_t candidateCount = 0;
-static uint8_t candidateIndex = 0;
-
 // Уровень шумодава (1-10, старая настройка) остаётся ручкой чувствительности:
 // выше уровень — больше отступ порога от полки шума, нужен сигнал сильнее.
+// Опущено к земле (5-20 вместо 10-25) — иначе сканер вообще не замечал
+// слабые сигналы даже на минимальном уровне.
 static uint8_t GetMargin(void) {
-  return (uint8_t)ConvertDomain(ctx->squelch.value, 0, 10, 10, 25);
+  return (uint8_t)ConvertDomain(ctx->squelch.value, 0, 10, 5, 20);
 }
 
 // Фиксированный порог Noise отбрасывал слабые сигналы (низкий SNR => noise
@@ -302,13 +293,8 @@ static void HandleStateTuning(void) {
   scan.measurement.glitch = 0;
 
   // Полка шума (EMA): мгновенно тянется вниз на тихом канале, но вверх
-  // ползёт медленно (>>3) — так одиночный ВЧ-пшик перед слабым сигналом не
-  // успевает задрать порог выше него. Раньше здесь стоял детектор переднего
-  // фронта (rssiPrev <= порог), но он требовал идеальной тишины на ПРЕДЫДУЩЕМ
-  // шаге — единственный пшик там сразу маскировал следующий слабый сигнал.
-  // Хвосты сильных сигналов на соседних каналах теперь отсеиваются не тут,
-  // а в VERIFY/LISTENING по Noise (см. GetNoiseThreshold) — у хвоста RSSI
-  // высокий, но несущей в полосе фильтра уже нет.
+  // ползёт медленно (>>3) — так одиночный ВЧ-пшик не успевает задрать
+  // порог выше следующего за ним слабого сигнала.
   int32_t rssiCurr = scan.measurement.rssi;
   uint8_t margin = GetMargin();
   if (rssiCurr < floorLevel) {
@@ -326,59 +312,32 @@ static void HandleStateTuning(void) {
     return;
   }
 
-  // Из-за групповой задержки RSSI реальный сигнал может оказаться на
-  // текущем канале или на одном-двух каналах позади (см. константы выше).
-  // Кандидаты идут от самого дальнего назад к текущему. Пропускаем
-  // ЧС/БС/garbage-частоты и здесь — иначе VERIFY может подтвердить и
-  // остановиться прямо на частоте, добавленной в чёрный список
-  candidateCount = 0;
-  for (int8_t i = CANDIDATE_LOOKBACK; i >= 0; i--) {
-    uint32_t f = scan.currentF - (uint32_t)i * scan.stepF;
-    if (f >= scan.startF && !IsSkippable(f))
-      candidates[candidateCount++] = f;
-  }
-  candidateIndex = 0;
+  // Энергия есть — остаёмся на этом же канале (PLL не трогаем!) и ждём
+  // ещё в CHECKING, пока Noise не даст достоверный ответ
   ChangeState(SCAN_STATE_CHECKING);
 }
 
 static void HandleStateChecking(void) {
-  if (candidateIndex >= candidateCount) {
-    // Ни один кандидат не подтвердился — возвращаемся к свипу со следующего
-    // после текущего (последнего проверенного) канала
-    Reg30_SetPllVco(false);
-    scan.currentF += scan.stepF;
-    ChangeState(SCAN_STATE_TUNING);
-    return;
-  }
-
-  uint32_t f = candidates[candidateIndex];
-
-  RADIO_MuteAudioNow(gRadioState);
-  Reg30_SetPllVco(true);
-  RADIO_SetParam(ctx, PARAM_PRECISE_F_CHANGE, false, false);
-  RADIO_SetParam(ctx, PARAM_FREQUENCY, f, false);
-  RADIO_ApplySettings(ctx);
-
+  // Частоту НЕ перестраиваем — PLL уже стоит на scan.currentF с прошлого
+  // шага TUNING. Хвост с предыдущего канала (высокий RSSI, но несущей уже
+  // нет) за это время "рассосётся" в фильтре ПЧ, и Noise покажет реальную
+  // картину — без единого лишнего дёргания PLL
   SYSTICK_DelayUs(SLOW_DELAY_US);
 
-  Measurement m = {0};
-  m.f = f;
-  m.rssi = RADIO_GetRSSI(ctx);
-  m.noise = BK4819_GetNoise();
-  m.glitch = BK4819_GetGlitch();
+  scan.measurement.noise = BK4819_GetNoise();
+  scan.measurement.glitch = BK4819_GetGlitch();
 
   // Noise: попадание в полосу RF-фильтра (селективно). Glitch: стабильность
   // несущей — переиспользуем существующий per-level порог go/gc
-  SquelchPreset sq = GetSqlPresetCached(ctx->squelch.value, f);
-  bool confirmed = (m.noise <= GetNoiseThreshold()) && (m.glitch <= sq.go);
-
-  scan.measurement = m;
+  SquelchPreset sq = GetSqlPresetCached(ctx->squelch.value, scan.currentF);
+  bool confirmed =
+      (scan.measurement.noise <= GetNoiseThreshold()) && (scan.measurement.glitch <= sq.go);
   scan.measurement.open = confirmed;
+
   SP_AddPoint(&scan.measurement);
   LOOT_Update(&scan.measurement);
 
   if (confirmed) {
-    scan.currentF = f;
     scan.isOpen = true;
 
     vfo->is_open = true;
@@ -395,7 +354,10 @@ static void HandleStateChecking(void) {
     return;
   }
 
-  candidateIndex++;
+  // Не подтвердилось (хвост с прошлой частоты или короткая помеха) — летим дальше
+  Reg30_SetPllVco(false);
+  scan.currentF += scan.stepF;
+  ChangeState(SCAN_STATE_TUNING);
 }
 
 static uint32_t sqClosedAt = 0;
@@ -555,8 +517,6 @@ void SCAN_Init(void) {
   scan.radioTimer = Now();
   cachedSqLevel = 0xFF; // форсируем перечитывание пресета на новой сессии скана
   floorLevel = 100;
-  candidateCount = 0;
-  candidateIndex = 0;
 
   ApplyBandSettings();
   vfo->is_open = false;
