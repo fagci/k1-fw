@@ -198,8 +198,27 @@ static VMinMax specParamScale(void) {
   }
 }
 
+// Настраивает автомасштаб под естественный диапазон параметра: RSSI
+// оставляем как есть (calibrated dBm/фиксированный минспан 40), для
+// остальных — минспан = 1/10 естественного диапазона, иначе автозум либо
+// не даст увидеть малую реальную вариацию (минспан RSSI 40 слишком грубый
+// для, скажем, Signal Power 0-64), либо наоборот утонет в шуме
+static void applyAutoLevelMinSpanForParam(void) {
+  if (specParam == SPAR_RSSI) {
+    SP_SetAutoLevelMinSpan(40);
+    return;
+  }
+  VMinMax sc = specParamScale();
+  uint16_t span = (sc.vMax - sc.vMin) / 10;
+  SP_SetAutoLevelMinSpan(span ? span : 2);
+}
+
 static void cycleSpecParam(void) {
   specParam = (specParam + 1) % SPAR_COUNT;
+  applyAutoLevelMinSpanForParam();
+  // Сбрасываем график — иначе в истории смешаются точки от старого и нового
+  // параметра, и автомасштаб посчитает мусор
+  SP_Init(&range);
   TOAST_Push("%s", SPAR_NAMES[specParam]);
   gRedrawScreen = true;
 }
@@ -602,7 +621,10 @@ static bool sqTunerKey(KEY_Code_t key, Key_State_t state) {
     switch (key) {
     case KEY_1:
     case KEY_7: {
-      VMinMax pv = specParamScale();
+      // Двигаем в пределах ТЕКУЩЕГО автомасштаба (SP_GetAutoLevel), а не
+      // полного фиксированного диапазона — иначе полка может уйти за
+      // пределы того, что вообще видно на увеличенном графике
+      VMinMax pv = SP_GetAutoLevel();
       specLine = AdjustU(specLine, pv.vMin, pv.vMax, key == KEY_1 ? 1 : -1);
       return true;
     }
@@ -1322,7 +1344,10 @@ void ANALYSER_render(void) {
 
   VMinMax v;
   if (specParam != SPAR_RSSI) {
-    v = specParamScale(); // естественный масштаб выбранного параметра
+    // Автомасштаб по факту измеренного диапазона (см. computeAutoLevel в
+    // spectrum.c) — фиксированный specParamScale() не показывал реальную
+    // вариацию значений
+    v = SP_GetAutoLevel();
   } else if (autoLevelMode) {
     v = SP_GetAutoLevel();
   } else {
@@ -1330,6 +1355,12 @@ void ANALYSER_render(void) {
                   .vMax = DBm2Rssi(ANALYSERMENU_GetDbmMax())};
   }
   SP_Render(&range, v);
+  if (specParam != SPAR_RSSI) {
+    // Числом — иначе диапазон вариации виден только "на глаз" по форме графика
+    PrintSmallEx(LCD_WIDTH - 1, SPECTRUM_Y + 6, POS_R, C_FILL, "%u", v.vMax);
+    PrintSmallEx(LCD_WIDTH - 1, SPECTRUM_Y + SPECTRUM_H - 1, POS_R, C_FILL,
+                 "%u", v.vMin);
+  }
   renderBottomFreq();
 
   // Левый верх: базовый режим → (опц. оверлей инверсно) → delay.

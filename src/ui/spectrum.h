@@ -33,6 +33,7 @@ uint16_t SP_GetRssiMax();
 VMinMax SP_GetMinMax(void);
 VMinMax SP_GetGraphMinMax(void);
 VMinMax SP_GetAutoLevel(void);
+void SP_SetAutoLevelMinSpan(uint16_t span);
 
 void SP_NextGraphUnit(bool next);
 void SP_RenderGraph(uint16_t min, uint16_t max);

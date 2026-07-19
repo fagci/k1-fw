@@ -66,9 +66,20 @@ static uint16_t spPeakRssiDisp = 0;
 
 static VMinMax autoLevel = {SP_RSSI_MIN, SP_RSSI_MAX};
 
+// Минимальный span в "сырых" единицах текущего канала графика. По умолчанию
+// откалиброван под RSSI (40 ≈ 20дБ) — для остальных параметров (noise,
+// AGC RSSI, AFC и т.п.), у которых совсем другой естественный диапазон,
+// вызывающая сторона (analyser.c) должна выставить подходящее значение через
+// SP_SetAutoLevelMinSpan(), иначе автомасштаб либо переусердствует с зумом,
+// либо наоборот не даст увеличить малую реальную вариацию.
+static uint16_t autoLevelMinSpan = 40;
+
+void SP_SetAutoLevelMinSpan(uint16_t span) {
+  autoLevelMinSpan = span ? span : 1;
+}
+
 // Пересчитывается в конце каждого свипа (вызов SP_Begin).
 // floor: минимальный RSSI истории → 2px снизу.
-// span: минимум 40 RSSI (≈20 dBм).
 static void computeAutoLevel(void) {
   if (filledPoints < 2)
     return;
@@ -82,8 +93,8 @@ static void computeAutoLevel(void) {
   }
 
   uint16_t span = rMax > rMin ? rMax - rMin : 0;
-  if (span < 40)
-    span = 40;
+  if (span < autoLevelMinSpan)
+    span = autoLevelMinSpan;
 
   // floor на 2px: vMin = rMin - 2*span/SPECTRUM_H
   uint16_t margin = 2 * span / SPECTRUM_H;
