@@ -232,7 +232,14 @@ static void HandleStateTuning(void) {
     return;
   }
 
-  if (SimpleSq_Check(scan.measurement.rssi)) {
+  // Эксперимент: AGC RSSI (REG_62 старший байт) вместо сырого RSSI (REG_67)
+  // для детектора — по наблюдению точнее садится на реальный канал, меньше
+  // "перелёта" на соседний из-за групповой задержки. scan.measurement.rssi
+  // не трогаем — график/loot остаются на настоящем RSSI, подменяем только
+  // вход в SimpleSq_Check.
+  uint16_t agcRssi = BK4819_GetAgcRSSI();
+
+  if (SimpleSq_Check(agcRssi)) {
     ChangeState(SCAN_STATE_CHECKING);
   } else {
     Reg30_SetPllVco(false);
